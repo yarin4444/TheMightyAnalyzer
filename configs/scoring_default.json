@@ -1,0 +1,96 @@
+{
+  "score_version": "owi_v1_modular",
+  "window_length_sec": 5.0,
+  "window_overlap": 0.5,
+  "route_mean_weight": 0.7,
+  "route_p10_weight": 0.3,
+  "hotspot_threshold": 35.0,
+  "auto_renormalize_modules": true,
+  "strict_weight_validation": false,
+  "signal_params": {
+    "sigma_speed": 0.5,
+    "sigma_cadence": 15.0,
+    "cv_max": 0.5,
+    "abnormal_jerk_threshold": 15.0,
+    "abnormal_max": 0.3,
+    "stop_speed_threshold": 0.3,
+    "hacc_max": 10.0,
+    "baseline_warmup_skip_sec": 3.0,
+    "baseline_duration_sec": 25.0
+  },
+  "modules": {
+    "motion": {
+      "enabled": true,
+      "weight": 0.5,
+      "auto_renormalize_metrics": true,
+      "metrics": {
+        "speed": {
+          "enabled": true,
+          "weight": 0.3
+        },
+        "cadence": {
+          "enabled": true,
+          "weight": 0.25
+        },
+        "regularity": {
+          "enabled": true,
+          "weight": 0.2
+        },
+        "stop_ratio": {
+          "enabled": true,
+          "weight": 0.15
+        },
+        "abnormal_motion": {
+          "enabled": true,
+          "weight": 0.1
+        }
+      }
+    },
+    "environment": {
+      "enabled": true,
+      "weight": 0.25,
+      "auto_renormalize_metrics": true,
+      "metrics": {
+        "obstacle_load": {
+          "enabled": true,
+          "weight": 0.25
+        },
+        "traffic_exposure": {
+          "enabled": true,
+          "weight": 0.25
+        },
+        "crowding": {
+          "enabled": true,
+          "weight": 0.2
+        },
+        "crossing_complexity": {
+          "enabled": true,
+          "weight": 0.2
+        },
+        "shade": {
+          "enabled": true,
+          "weight": 0.1
+        }
+      }
+    },
+    "physiology": {
+      "enabled": true,
+      "weight": 0.25,
+      "auto_renormalize_metrics": true,
+      "metrics": {
+        "heart_rate": {
+          "enabled": true,
+          "weight": 0.4
+        },
+        "rmssd": {
+          "enabled": true,
+          "weight": 0.5
+        },
+        "heart_rate_slope": {
+          "enabled": true,
+          "weight": 0.1
+        }
+      }
+    }
+  }
+}
