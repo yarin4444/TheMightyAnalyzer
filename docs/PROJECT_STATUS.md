@@ -1,8 +1,8 @@
 # Project Status: Walkability Analyzer
 
 **Project:** TheMightyAnalyzer - Automated Walkability Assessment System  
-**Last Updated:** December 4, 2025  
-**Version:** 1.0.0
+**Last Updated:** May 30, 2026  
+**Version:** 1.1.0
 
 ---
 
@@ -146,14 +146,23 @@ The Walkability Analyzer is a comprehensive system for automatically evaluating 
 - **Progress reporting** with INFO/DEBUG logs
 - **Summary CSV** generation for all routes
 
-#### 8. **Video Processing (Stub)**
-- **Framework in place** for future video analysis
-- **Clap detection** for synchronization
-- **Placeholder functions** for:
-  - Crowding index computation
-  - Shade ratio detection
-  - Crosswalk counting
-- **Not yet implemented** (returns default values)
+#### 8. **Video Processing (Implemented)**
+- **Audio-based clap synchronization** via librosa (with audioread fallback for GoPro H.264 containers)
+  - Detects start/end clap events in video audio track
+  - Derives linear `t_sensor = scale * t_video + offset` mapping
+  - Fallback to video-frame-based approximation if audio extraction fails
+- **Brightness / shade detection** — classifies frames as bright or shaded; segments annotated as `light_bright` / `light_dark`
+- **Crowd-level estimation** — edge-density heuristic per frame; segments above threshold annotated as `crowd_high`
+- **Crosswalk detection** — detects crosswalk markings from video frames; annotated as `crosswalk`
+- **Windowed video CSV export** — per-recording `*_video_scores.csv` with 32 time-windows of per-frame detector outputs
+- **Interactive map integration** — video annotation markers (crowd 🟣, crosswalk 🔵, shade 🟡) plotted on route map
+- **OWI EEI module wired** — `VideoAnnotation` objects converted to `crowding_w` / `crossing_complexity_w` / `shade_ratio_w` inputs for the Environmental Experience Index scorer
+- **CLI flags:** `--process-video` (enable), `--no-video` (force skip)
+
+**Validated on:** `test_records/BG_20-10-25/Route4/GX010006.MP4` (1.1 GB GoPro, ~147 s)
+- Clap sync: `t_sensor = 0.983 * t_video + 13.65`
+- 7 annotations: 0 brightness, 1 crowd, 6 crosswalks
+- 32 windowed output rows per recording
 
 ---
 
@@ -202,6 +211,17 @@ The Walkability Analyzer is a comprehensive system for automatically evaluating 
    - Added patterns: `"AngularVelocity_X_2"`, `"AngularVelocity_Y_2"`, `"AngularVelocity_Z_2"`
    - Result: Acceleration data properly loaded from CSV files
 
+### Session 6: Video Processing Integration (May 30, 2026)
+13. **Fixed `mapping.py` — `'Index' object has no attribute 'abs'`:**
+    - `(walking_segment.index - segment_mid_time).abs()` → `.to_series().abs()`
+    - Affects video annotation marker placement on route maps
+
+14. **Fixed `owi_modular.py` — `'VideoAnnotation' object has no attribute 'get'`:**
+    - `_get_env_window()` previously expected plain dicts with `t_start`/`t_end` keys
+    - Added `_video_annotation_to_env_dict()` converter; `_get_env_window` now accepts both `VideoAnnotation` objects and legacy dicts
+    - Maps `annotation_type` (`crowd_high`, `crosswalk`, `light_dark`, etc.) → EEI keys (`crowding_w`, `crossing_complexity_w`, `shade_ratio_w`)
+    - Multiple overlapping annotations in a window are merged
+
 ### Session 4: Visualization Refinement
 9. **Enhanced acceleration plot:**
    - Initial: Thicker line (2.5), fill area (15% opacity), anomaly detection
@@ -241,14 +261,18 @@ The Walkability Analyzer is a comprehensive system for automatically evaluating 
 - ✅ Produce professional HTML reports
 - ✅ Process multiple routes in batch
 - ✅ Export summary statistics to CSV
+- ✅ Video processing: clap sync, brightness/crowd/crosswalk detection
+- ✅ Windowed video scores CSV export
+- ✅ Video annotation markers on interactive map
+- ✅ EEI module wired to VideoAnnotation output
 
 ### What's Partially Implemented ⚠️
-- ⚠️ Video processing framework (stubs only)
 - ⚠️ Surface quality detection (defaults to 0.0)
-- ⚠️ Crowding/shade/crosswalk analysis (defaults to neutral)
+- ⚠️ Video crowd detection uses edge-density heuristic (not a trained model)
+- ⚠️ Audio extraction requires ffmpeg for optimal speed; falls back to slow `audioread` for H.264 containers
 
 ### What's Not Yet Implemented ❌
-- ❌ Video-based environmental analysis
+- ❌ ML-based crowd/obstacle detection (YOLO / Faster R-CNN)
 - ❌ Surface quality from accelerometer patterns
 - ❌ Weather condition integration
 - ❌ Accessibility feature detection
@@ -264,7 +288,7 @@ The Walkability Analyzer is a comprehensive system for automatically evaluating 
 - **Requires manual start/stop stomps** for segment extraction
 - **GPS accuracy** depends on device and environment
 - **No automatic sensor calibration**
-- **Video synchronization** not yet implemented
+- **Video synchronization** implemented via clap detection; requires ffmpeg for fastest audio extraction
 
 ### Processing
 - **Single-threaded execution** (could be parallelized)

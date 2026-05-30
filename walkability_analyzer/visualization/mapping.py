@@ -153,7 +153,7 @@ def create_route_map(
     if video_annotations:
         for v_ann in video_annotations:
             segment_mid_time = (v_ann.t_start_sensor + v_ann.t_end_sensor) / 2
-            closest_idx = (walking_segment.index - segment_mid_time).abs().argmin()
+            closest_idx = (walking_segment.index - segment_mid_time).to_series().abs().argmin()
             
             if closest_idx < len(walking_segment):
                 lat = walking_segment.iloc[closest_idx]["latitude"]

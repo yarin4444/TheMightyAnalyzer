@@ -486,19 +486,49 @@ def _aggregate_window_owi(
 # Physiology / environment window lookup helpers
 # ---------------------------------------------------------------------------
 
+def _video_annotation_to_env_dict(ann) -> Dict:
+    """Convert a VideoAnnotation object to the env-dict format expected by _compute_window_eei."""
+    ann_type = ann.annotation_type.lower()
+    extra = ann.extra_info or {}
+    result: Dict = {}
+    if "crowd" in ann_type:
+        result["crowding_w"] = 1.0
+    if "crosswalk" in ann_type:
+        result["crossing_complexity_w"] = 1.0
+    if "shade" in ann_type or "dark" in ann_type:
+        result["shade_ratio_w"] = extra.get("shade_ratio", 1.0)
+    if "bright" in ann_type or "light_bright" in ann_type:
+        result["shade_ratio_w"] = extra.get("shade_ratio", 0.0)
+    return result
+
+
 def _get_env_window(
-    env_window_data: Optional[List[Dict]],
+    env_window_data: Optional[List],
     t_start: float,
     t_end: float,
 ) -> Optional[Dict]:
-    """Return the environmental annotation whose time range covers the window midpoint."""
+    """Return a merged environmental dict from all annotations covering the window midpoint.
+
+    Accepts either legacy plain dicts (with ``t_start``/``t_end`` keys) or
+    ``VideoAnnotation`` dataclass objects (with ``t_start_sensor``/``t_end_sensor``).
+    """
     if not env_window_data:
         return None
     t_mid = (t_start + t_end) / 2.0
+    merged: Dict = {}
+    found_any = False
     for w in env_window_data:
-        if w.get("t_start", -1e9) <= t_mid < w.get("t_end", -1e9):
-            return w
-    return None
+        if hasattr(w, "t_start_sensor"):
+            # VideoAnnotation object
+            if w.t_start_sensor <= t_mid < w.t_end_sensor:
+                found_any = True
+                merged.update(_video_annotation_to_env_dict(w))
+        else:
+            # Legacy dict
+            if w.get("t_start", -1e9) <= t_mid < w.get("t_end", -1e9):
+                found_any = True
+                merged.update(w)
+    return merged if found_any else None
 
 
 def _get_physio_window(
