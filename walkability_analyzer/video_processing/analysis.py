@@ -43,9 +43,9 @@ def analyze_video(
     crowd_annotations = detect_crowd_segments(video_path, time_sync, config)
     annotations.extend(crowd_annotations)
     
-    # TODO: Crosswalk detection (placeholder)
-    # crosswalk_annotations = detect_crosswalks(video_path, time_sync, config)
-    # annotations.extend(crosswalk_annotations)
+    # Crosswalk detection (using colour-masking + Hough lines)
+    crosswalk_annotations = detect_crosswalk_segments(video_path, time_sync, config)
+    annotations.extend(crosswalk_annotations)
     
     # Compute summary metrics
     metrics = compute_video_metrics(annotations)
@@ -266,7 +266,83 @@ def detect_crowd_segments(
         return []
 
 
-def compute_video_metrics(annotations: List[VideoAnnotation]) -> Dict:
+def detect_crosswalk_segments(
+    video_path: Path,
+    time_sync: TimeSync,
+    config: object,
+) -> List[VideoAnnotation]:
+    """Detect crosswalk events in the video using the crosswalk_detector.
+
+    Args:
+        video_path: Path to video file
+        time_sync:  TimeSync object
+        config:     VideoConfig object
+
+    Returns:
+        List of VideoAnnotations for detected crosswalk moments.
+    """
+    from walkability_analyzer.video_processing.detectors import crosswalk_detector
+
+    try:
+        cap = cv2.VideoCapture(str(video_path))
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        if fps <= 0:
+            fps = 30.0
+
+        frame_interval = max(1, int(fps / config.frame_sample_rate))
+
+        in_crosswalk = False
+        segment_start: Optional[float] = None
+        annotations: List[VideoAnnotation] = []
+        frame_idx = 0
+
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            if frame_idx % frame_interval == 0:
+                t_video = frame_idx / fps
+                t_sensor = time_sync.video_to_sensor(t_video)
+                result = crosswalk_detector(frame)
+                detected = bool(result.get("crosswalk_detected", 0))
+                confidence = float(result.get("crosswalk_confidence", 0.0))
+
+                if detected and not in_crosswalk:
+                    segment_start = t_sensor
+                    in_crosswalk = True
+                elif not detected and in_crosswalk:
+                    annotations.append(VideoAnnotation(
+                        annotation_type="crosswalk",
+                        t_start_sensor=segment_start,
+                        t_end_sensor=t_sensor,
+                        extra_info={"confidence": confidence},
+                    ))
+                    in_crosswalk = False
+
+            frame_idx += 1
+
+        cap.release()
+
+        # Close final segment if video ended while in a crosswalk
+        if in_crosswalk and segment_start is not None:
+            last_t = time_sync.video_to_sensor(frame_idx / fps)
+            annotations.append(VideoAnnotation(
+                annotation_type="crosswalk",
+                t_start_sensor=segment_start,
+                t_end_sensor=last_t,
+                extra_info={},
+            ))
+
+        logger.info(f"Detected {len(annotations)} crosswalk segment(s)")
+        return annotations
+
+    except Exception as e:
+        logger.error(f"Failed to detect crosswalks: {e}")
+        return []
+
+
+
     """Compute summary metrics from video annotations.
     
     Args:

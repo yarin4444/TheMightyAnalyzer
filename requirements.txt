@@ -13,6 +13,8 @@ shapely>=2.0.0
 
 # Video processing
 opencv-python>=4.8.0
+# Optional: YOLOv8 for improved person detection (replaces MOG2 heuristic)
+# ultralytics>=8.0
 
 # Audio processing (for clap detection)
 librosa>=0.10.0
