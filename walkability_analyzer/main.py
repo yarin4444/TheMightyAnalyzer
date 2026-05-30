@@ -218,6 +218,21 @@ def process_recording(
                 
                 # Add video metrics to recording metrics
                 metrics.update(video_metrics)
+
+                # Export per-window video scores to CSV aligned to sensor timeline
+                from walkability_analyzer.video_processing.pipeline import process_video_to_csv
+                video_csv_path = output_dir / f"{recording.recording_id}_video_scores.csv"
+                try:
+                    process_video_to_csv(
+                        video_path=route_data.video_path,
+                        time_sync=time_sync,
+                        output_csv=video_csv_path,
+                        sample_rate_hz=getattr(VIDEO_CONFIG, "frame_sample_rate", 2.0),
+                        window_sec=getattr(scoring_config or SCORING_CONFIG, "window_length_sec", 5.0),
+                    )
+                    logger.info(f"Video scores CSV saved: {video_csv_path}")
+                except Exception as csv_exc:
+                    logger.warning(f"Video CSV export failed (non-fatal): {csv_exc}")
             else:
                 logger.warning("Failed to detect claps, skipping video analysis")
         
@@ -323,7 +338,7 @@ def process_recording(
             sampling_rate=recording.sampling_rate,
             route_id=f"{route_data.route_id}/{recording.recording_id}",
             physiology_data=physiology_data,
-            env_window_data=None,   # TODO: pass video-derived env annotations here
+            env_window_data=video_annotations,   # video-derived environment annotations
             scoring_config=cfg,
             scoring_profile=scoring_profile,
         )
