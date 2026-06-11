@@ -118,6 +118,7 @@ def process_recording(
     aligned_polar_df: Optional[pd.DataFrame] = None,
     polar_parse_result=None,
     polar_sync_meta: Optional[Dict] = None,
+    sam2_detector=None,
 ):
     """Process a single sensor recording.
 
@@ -213,7 +214,8 @@ def process_recording(
                 video_annotations, video_metrics = analyze_video(
                     route_data.video_path,
                     time_sync,
-                    VIDEO_CONFIG
+                    VIDEO_CONFIG,
+                    sam2_detector=sam2_detector,
                 )
                 
                 # Add video metrics to recording metrics
@@ -386,6 +388,7 @@ def process_route(
     scoring_config=None,
     physio_dir: Optional[Path] = None,
     scoring_profile=None,
+    sam2_detector=None,
 ):
     """Process all recordings for a single route.
 
@@ -466,6 +469,7 @@ def process_route(
                 aligned_polar_df=aligned_polar_df,
                 polar_parse_result=polar_parse_result,
                 polar_sync_meta=polar_sync_meta,
+                sam2_detector=sam2_detector,
             )
 
             all_recording_metrics.append(metrics)
@@ -513,6 +517,7 @@ def run_analysis(
     scoring_config=None,
     physio_root: Optional[Path] = None,
     scoring_profile=None,
+    use_sam2: bool = False,
 ):
     """Run the complete walkability analysis pipeline.
 
@@ -546,6 +551,22 @@ def run_analysis(
     
     logger.info(f"Found {len(route_paths)} route(s) to process")
     
+    # Build SAM 2 detector once for the entire run (expensive to load)
+    sam2_detector = None
+    if use_sam2:
+        from walkability_analyzer.video_processing.sam2_detector import (
+            build_sam2_crowd_detector, SAM2_AVAILABLE,
+        )
+        if SAM2_AVAILABLE:
+            sam2_detector = build_sam2_crowd_detector()
+            if sam2_detector is None:
+                logger.warning(
+                    "SAM 2 requested but detector could not be built "
+                    "(checkpoint missing?). Falling back to heuristic."
+                )
+        else:
+            logger.warning("--use-sam2 requested but SAM 2 is not installed.")
+
     # Process each route
     summary_data = []
     
@@ -566,6 +587,7 @@ def run_analysis(
                 scoring_config=scoring_config,
                 physio_dir=physio_root,
                 scoring_profile=scoring_profile,
+                sam2_detector=sam2_detector,
             )
             
             # Add to summary — include OWI-specific fields when available

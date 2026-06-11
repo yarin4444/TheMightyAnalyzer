@@ -67,6 +67,11 @@ Examples:
         '--no-video', action='store_true',
         help='Skip video processing even if video files are present',
     )
+    parser.add_argument(
+        '--use-sam2', action='store_true',
+        help='Use Meta SAM 2 for crowd detection instead of edge-density heuristic '
+             '(requires: pip install torch torchvision sam2, plus checkpoint download)',
+    )
 
     # ---- Scoring version flags -----------------------------------------
     parser.add_argument(
@@ -152,6 +157,7 @@ Examples:
             specific_route=args.route,
             scoring_config=scoring_cfg,
             physio_root=args.physio_root,
+            use_sam2=args.use_sam2,
         )
         logger.info("Analysis complete!")
     except Exception as e:
