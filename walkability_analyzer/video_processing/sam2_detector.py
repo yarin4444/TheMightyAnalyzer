@@ -45,7 +45,7 @@ except ImportError:
 
 # Default checkpoint path (relative to this file)
 _DEFAULT_CKPT = Path(__file__).parent / "checkpoints" / "sam2.1_hiera_tiny.pt"
-_DEFAULT_CFG  = "configs/sam2.1/sam2.1_hiera_tiny.yaml"
+_DEFAULT_CFG  = "configs/sam2.1/sam2.1_hiera_t.yaml"
 
 # Typical person pixel area bounds at common GoPro resolutions (1080p / 4K)
 _PERSON_MIN_AREA_RATIO = 0.001   # >0.1 % of frame area
