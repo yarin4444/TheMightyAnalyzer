@@ -11,6 +11,11 @@ import numpy as np
 
 from walkability_analyzer.config import VIDEO_CONFIG
 from walkability_analyzer.data_structures import TimeSync, VideoAnnotation
+from walkability_analyzer.video_processing.sam2_detector import (
+    SAM2_AVAILABLE,
+    SAM2CrowdDetector,
+    build_sam2_crowd_detector,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +23,8 @@ logger = logging.getLogger(__name__)
 def analyze_video(
     video_path: Path,
     time_sync: TimeSync,
-    config: Optional[object] = None
+    config: Optional[object] = None,
+    sam2_detector: Optional["SAM2CrowdDetector"] = None,
 ) -> Tuple[List[VideoAnnotation], Dict]:
     """Analyze video content and produce annotations.
     
@@ -39,13 +45,15 @@ def analyze_video(
     brightness_annotations = detect_brightness_segments(video_path, time_sync, config)
     annotations.extend(brightness_annotations)
     
-    # Analyze crowd level
-    crowd_annotations = detect_crowd_segments(video_path, time_sync, config)
+    # Analyze crowd level (use SAM 2 when provided, else edge-density heuristic)
+    crowd_annotations = detect_crowd_segments(
+        video_path, time_sync, config, sam2_detector=sam2_detector
+    )
     annotations.extend(crowd_annotations)
     
-    # TODO: Crosswalk detection (placeholder)
-    # crosswalk_annotations = detect_crosswalks(video_path, time_sync, config)
-    # annotations.extend(crosswalk_annotations)
+    # Crosswalk detection
+    crosswalk_annotations = detect_crosswalk_segments(video_path, time_sync, config)
+    annotations.extend(crosswalk_annotations)
     
     # Compute summary metrics
     metrics = compute_video_metrics(annotations)
@@ -151,43 +159,46 @@ def detect_brightness_segments(
         return []
 
 
-def estimate_crowd_level(frame: np.ndarray) -> int:
-    """Estimate crowd level from a video frame using simple motion/blob detection.
-    
-    This is a very simple heuristic. For production, consider using object detection models.
-    
+def estimate_crowd_level(
+    frame: np.ndarray,
+    sam2_detector: Optional["SAM2CrowdDetector"] = None,
+) -> int:
+    """Estimate crowd level from a video frame.
+
+    Uses SAM 2 automatic mask generator when a detector is provided;
+    falls back to a fast edge-density heuristic otherwise.
+
     Args:
-        frame: Video frame (BGR)
-        
+        frame: Video frame (BGR).
+        sam2_detector: Optional SAM2CrowdDetector instance.
+
     Returns:
-        Estimated number of moving objects/people
+        Estimated number of person-scale objects in the frame.
     """
-    # TODO: This is a placeholder implementation
-    # For a real system, you would use:
-    # - Background subtraction (cv2.createBackgroundSubtractorMOG2)
-    # - Person detection (YOLO, Faster R-CNN, etc.)
-    # - Or other computer vision techniques
-    
-    # Simple placeholder: assume crowd is proportional to edge density
+    if sam2_detector is not None:
+        try:
+            return sam2_detector.count_people_in_frame(frame)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"SAM 2 detection failed, falling back to heuristic: {exc}")
+
+    # Fallback: edge-density heuristic
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     edges = cv2.Canny(gray, 50, 150)
     edge_density = edges.sum() / (frame.shape[0] * frame.shape[1])
-    
-    # Very rough heuristic mapping
     if edge_density < 0.01:
         return 0
     elif edge_density < 0.05:
         return 2
     elif edge_density < 0.10:
         return 5
-    else:
-        return 10
+    return 10
 
 
 def detect_crowd_segments(
     video_path: Path,
     time_sync: TimeSync,
-    config: object
+    config: object,
+    sam2_detector: Optional["SAM2CrowdDetector"] = None,
 ) -> List[VideoAnnotation]:
     """Detect crowded segments in the video.
     
@@ -214,7 +225,7 @@ def detect_crowd_segments(
                 break
             
             if frame_idx % frame_interval == 0:
-                crowd_level = estimate_crowd_level(frame)
+                crowd_level = estimate_crowd_level(frame, sam2_detector=sam2_detector)
                 
                 t_video = frame_idx / fps
                 t_sensor = time_sync.video_to_sensor(t_video)
@@ -309,6 +320,71 @@ def compute_video_metrics(annotations: List[VideoAnnotation]) -> Dict:
                 metrics["shade_ratio"] = min(1.0, total_shade_time / total_time)
     
     return metrics
+
+
+def detect_crosswalk_segments(
+    video_path: Path,
+    time_sync: TimeSync,
+    config: object,
+) -> List[VideoAnnotation]:
+    """Detect crosswalk events using colour masking + Hough line detection."""
+    from walkability_analyzer.video_processing.detectors import crosswalk_detector
+
+    try:
+        cap = cv2.VideoCapture(str(video_path))
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        if fps <= 0:
+            fps = 30.0
+
+        frame_interval = max(1, int(fps / config.frame_sample_rate))
+        in_crosswalk = False
+        segment_start: Optional[float] = None
+        annotations: List[VideoAnnotation] = []
+        frame_idx = 0
+
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            if frame_idx % frame_interval == 0:
+                t_video = frame_idx / fps
+                t_sensor = time_sync.video_to_sensor(t_video)
+                result = crosswalk_detector(frame)
+                detected = bool(result.get("crosswalk_detected", 0))
+                confidence = float(result.get("crosswalk_confidence", 0.0))
+
+                if detected and not in_crosswalk:
+                    segment_start = t_sensor
+                    in_crosswalk = True
+                elif not detected and in_crosswalk:
+                    annotations.append(VideoAnnotation(
+                        annotation_type="crosswalk",
+                        t_start_sensor=segment_start,
+                        t_end_sensor=t_sensor,
+                        extra_info={"confidence": confidence},
+                    ))
+                    in_crosswalk = False
+
+            frame_idx += 1
+
+        cap.release()
+
+        if in_crosswalk and segment_start is not None:
+            last_t = time_sync.video_to_sensor(frame_idx / fps)
+            annotations.append(VideoAnnotation(
+                annotation_type="crosswalk",
+                t_start_sensor=segment_start,
+                t_end_sensor=last_t,
+                extra_info={},
+            ))
+
+        logger.info(f"Detected {len(annotations)} crosswalk segment(s)")
+        return annotations
+
+    except Exception as e:
+        logger.error(f"Failed to detect crosswalks: {e}")
+        return []
 
 
 # Note: Tuple is already imported at the top of the file

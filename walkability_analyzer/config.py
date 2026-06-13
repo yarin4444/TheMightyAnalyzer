@@ -57,7 +57,13 @@ class VideoConfig:
     clap_search_window_end: float = 10.0  # seconds from end
     
     # Video analysis parameters
-    frame_sample_rate: float = 1.0  # analyze one frame per second
+    frame_sample_rate: float = 1.0  # analyze one frame per second (classical CV)
+    sam2_frame_sample_rate: float = 0.2  # frames/sec when SAM2 is active (~1 per 5 s, much cheaper on CPU)
+    sam2_input_max_width: int = 640  # resize frames to at most this width before SAM2 (speeds up encoder)
+    sam2_points_per_side: int = 12   # SAM2 grid density; 16=coarse, 12=faster, 8=fastest
+    # EEI normalisation: raw SAM2 values at these counts → score = 1.0 (worst)
+    eei_crowd_max: float = 40.0      # crowd_count at which crowding_w = 1.0
+    eei_obstacle_max: float = 20.0   # obstacle_count at which obstacle_load_w = 1.0
     crowd_threshold_low: int = 3  # moving objects
     crowd_threshold_high: int = 10  # moving objects
     brightness_threshold_dark: int = 50  # 0-255

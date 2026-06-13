@@ -118,6 +118,7 @@ def process_recording(
     aligned_polar_df: Optional[pd.DataFrame] = None,
     polar_parse_result=None,
     polar_sync_meta: Optional[Dict] = None,
+    sam2_detector=None,
 ):
     """Process a single sensor recording.
 
@@ -195,6 +196,7 @@ def process_recording(
     
     # Process video if requested and available
     video_annotations = None
+    video_env_windows = None   # per-window env dicts from pipeline CSV (preferred for OWI)
     if process_video and route_data.video_path:
         try:
             logger.info(f"Processing video: {route_data.video_path}")
@@ -213,11 +215,45 @@ def process_recording(
                 video_annotations, video_metrics = analyze_video(
                     route_data.video_path,
                     time_sync,
-                    VIDEO_CONFIG
+                    VIDEO_CONFIG,
+                    sam2_detector=sam2_detector,
                 )
                 
                 # Add video metrics to recording metrics
                 metrics.update(video_metrics)
+
+                # Export per-window video scores to CSV aligned to sensor timeline
+                from walkability_analyzer.video_processing.pipeline import process_video_to_csv
+                from walkability_analyzer.scoring.owi_modular import video_csv_df_to_env_windows
+                video_csv_path = output_dir / f"{recording.recording_id}_video_scores.csv"
+                _win_sec = getattr(scoring_config or SCORING_CONFIG, "window_length_sec", 5.0)
+                try:
+                    video_pipeline_df = process_video_to_csv(
+                        video_path=route_data.video_path,
+                        time_sync=time_sync,
+                        output_csv=video_csv_path,
+                        sample_rate_hz=(
+                            getattr(VIDEO_CONFIG, "sam2_frame_sample_rate", 0.2)
+                            if sam2_detector is not None
+                            else getattr(VIDEO_CONFIG, "frame_sample_rate", 1.0)
+                        ),
+                        window_sec=_win_sec,
+                        sam2_analyzer=sam2_detector,
+                    )
+                    logger.info(f"Video scores CSV saved: {video_csv_path}")
+                    # Convert to env-window list for OWI EEI module
+                    video_env_windows = video_csv_df_to_env_windows(
+                        video_pipeline_df,
+                        _win_sec,
+                        crowd_max=getattr(VIDEO_CONFIG, "eei_crowd_max", 40.0),
+                        obstacle_max=getattr(VIDEO_CONFIG, "eei_obstacle_max", 20.0),
+                    )
+                    logger.info(
+                        f"Built {len(video_env_windows)} env windows from video CSV "
+                        f"({'SAM2' if sam2_detector is not None else 'classical CV'})"
+                    )
+                except Exception as csv_exc:
+                    logger.warning(f"Video CSV export failed (non-fatal): {csv_exc}")
             else:
                 logger.warning("Failed to detect claps, skipping video analysis")
         
@@ -323,7 +359,11 @@ def process_recording(
             sampling_rate=recording.sampling_rate,
             route_id=f"{route_data.route_id}/{recording.recording_id}",
             physiology_data=physiology_data,
-            env_window_data=None,   # TODO: pass video-derived env annotations here
+            env_window_data=(
+                video_env_windows        # precise per-window CSV data (preferred)
+                if video_env_windows is not None
+                else video_annotations   # fallback: coarse VideoAnnotation segments
+            ),
             scoring_config=cfg,
             scoring_profile=scoring_profile,
         )
@@ -371,6 +411,7 @@ def process_route(
     scoring_config=None,
     physio_dir: Optional[Path] = None,
     scoring_profile=None,
+    sam2_detector=None,
 ):
     """Process all recordings for a single route.
 
@@ -451,6 +492,7 @@ def process_route(
                 aligned_polar_df=aligned_polar_df,
                 polar_parse_result=polar_parse_result,
                 polar_sync_meta=polar_sync_meta,
+                sam2_detector=sam2_detector,
             )
 
             all_recording_metrics.append(metrics)
@@ -498,6 +540,7 @@ def run_analysis(
     scoring_config=None,
     physio_root: Optional[Path] = None,
     scoring_profile=None,
+    use_sam2: bool = False,
 ):
     """Run the complete walkability analysis pipeline.
 
@@ -531,6 +574,32 @@ def run_analysis(
     
     logger.info(f"Found {len(route_paths)} route(s) to process")
     
+    # Build SAM 2 analyzer once for the entire run (expensive to load).
+    # use_sam2=True  → always try SAM2
+    # use_sam2=False → auto-detect: enable if checkpoint exists AND SAM2 is installed
+    sam2_detector = None
+    from walkability_analyzer.video_processing.sam2_detector import (
+        build_sam2_frame_analyzer, SAM2_AVAILABLE, _DEFAULT_CKPT,
+    )
+    _should_try_sam2 = use_sam2 or (SAM2_AVAILABLE and _DEFAULT_CKPT.exists())
+    if _should_try_sam2:
+        if SAM2_AVAILABLE:
+            sam2_detector = build_sam2_frame_analyzer(
+                points_per_side=getattr(VIDEO_CONFIG, "sam2_points_per_side", 12),
+                max_input_width=getattr(VIDEO_CONFIG, "sam2_input_max_width", 640),
+            )
+            if sam2_detector is not None:
+                logger.info("SAM2FrameAnalyzer loaded — video will use SAM2 multi-metric analysis.")
+            else:
+                logger.warning(
+                    "SAM 2 checkpoint not found. Falling back to classical CV. "
+                    "Download sam2.1_hiera_tiny.pt and place it in "
+                    "walkability_analyzer/video_processing/checkpoints/"
+                )
+        else:
+            if use_sam2:
+                logger.warning("--use-sam2 requested but SAM 2 is not installed.")
+
     # Process each route
     summary_data = []
     
@@ -551,6 +620,7 @@ def run_analysis(
                 scoring_config=scoring_config,
                 physio_dir=physio_root,
                 scoring_profile=scoring_profile,
+                sam2_detector=sam2_detector,
             )
             
             # Add to summary — include OWI-specific fields when available

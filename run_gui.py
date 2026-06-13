@@ -131,6 +131,8 @@ class WalkabilityGUI(tk.Tk):
         self._dry_run     = BooleanVar(value=False)
         self._open_report = BooleanVar(value=True)
         self._verbose     = BooleanVar(value=False)
+        self._process_video = BooleanVar(value=False)
+        self._use_sam2    = BooleanVar(value=False)
         self._save_config = StringVar(value="")
 
         # Windowing vars
@@ -338,6 +340,31 @@ class WalkabilityGUI(tk.Tk):
         opts.grid(row=row, column=0, columnspan=3, sticky="w", padx=PAD*2, pady=4)
         ttk.Checkbutton(opts, text="Open report after analysis", variable=self._open_report).pack(side="left", padx=8)
         ttk.Checkbutton(opts, text="Verbose logging",            variable=self._verbose).pack(side="left", padx=8)
+        row += 1
+
+        # Video processing options row
+        vid_opts = tk.Frame(f, bg=BG)
+        vid_opts.grid(row=row, column=0, columnspan=3, sticky="w", padx=PAD*2, pady=(0, 4))
+        ttk.Checkbutton(
+            vid_opts, text="Process video (GoPro)",
+            variable=self._process_video,
+            command=self._on_video_toggle,
+        ).pack(side="left", padx=8)
+        self._chk_sam2 = ttk.Checkbutton(
+            vid_opts, text="Use SAM2 (better accuracy, slower)",
+            variable=self._use_sam2,
+            state="disabled",
+        )
+        self._chk_sam2.pack(side="left", padx=8)
+
+        # SAM2 availability label
+        _sam2_ok = self._check_sam2_available()
+        _sam2_color = SUCCESS if _sam2_ok else WARNING
+        _sam2_text  = "SAM2: installed ✓" if _sam2_ok else "SAM2: not installed (pip install torch sam2)"
+        self._sam2_status_lbl = tk.Label(
+            f, text=_sam2_text, bg=BG, font=FONT_BODY, fg=_sam2_color,
+        )
+        self._sam2_status_lbl.grid(row=row + 1, column=0, columnspan=3, sticky="w", padx=PAD*2, pady=(0, 4))
 
     # ------------------------------------------------------------------
     # Scoring tab
@@ -555,6 +582,27 @@ class WalkabilityGUI(tk.Tk):
     # =====================================================================
     # Event handlers
     # =====================================================================
+
+    def _check_sam2_available(self) -> bool:
+        """Return True if SAM2 is importable and the checkpoint exists."""
+        try:
+            from walkability_analyzer.video_processing.sam2_detector import (
+                SAM2_AVAILABLE, _DEFAULT_CKPT,
+            )
+            return SAM2_AVAILABLE and _DEFAULT_CKPT.exists()
+        except Exception:
+            return False
+
+    def _on_video_toggle(self) -> None:
+        """Enable/disable the SAM2 checkbox based on the process-video toggle."""
+        if self._process_video.get():
+            self._chk_sam2.configure(state="normal")
+            # Auto-check SAM2 if it's available
+            if self._check_sam2_available():
+                self._use_sam2.set(True)
+        else:
+            self._use_sam2.set(False)
+            self._chk_sam2.configure(state="disabled")
 
     def _browse_dir(self, var: StringVar) -> None:
         initial = var.get() if Path(var.get()).is_dir() else str(_THIS_DIR)
@@ -839,6 +887,7 @@ class WalkabilityGUI(tk.Tk):
                     log_queue.put(("__PLAIN__", "     unless a Polar CSV is found inside the recording folder."))
                     log_queue.put(("__PLAIN__", ""))
 
+
             if dry_run:
                 log_queue.put(("__PLAIN__", "=== DRY RUN — no analysis performed ==="))
                 log_queue.put(("__OK__", None))
@@ -849,11 +898,12 @@ class WalkabilityGUI(tk.Tk):
             run_analysis(
                 data_root=data_root,
                 output_root=output_root,
-                process_video=False,
+                process_video=self._process_video.get(),
                 specific_route=route,
                 scoring_config=scoring_config,
                 physio_root=physio_root,
                 scoring_profile=profile,
+                use_sam2=self._use_sam2.get(),
             )
 
             reports = sorted(output_root.rglob("*_report.html"))

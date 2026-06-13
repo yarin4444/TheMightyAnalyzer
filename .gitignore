@@ -1,5 +1,9 @@
 # .gitignore for Walkability Analyzer
 
+# SAM 2 model checkpoints (large binary files — download separately)
+walkability_analyzer/video_processing/checkpoints/*.pt
+walkability_analyzer/video_processing/checkpoints/*.pth
+
 # Python
 __pycache__/
 *.py[cod]

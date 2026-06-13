@@ -10,7 +10,7 @@ Exports:
 """
 
 from walkability_analyzer.scoring.walkability import compute_walkability_score
-from walkability_analyzer.scoring.owi_modular import compute_owi_modular
+from walkability_analyzer.scoring.owi_modular import compute_owi_modular, video_csv_df_to_env_windows
 from walkability_analyzer.scoring.score_config import (
     ScoringProfile,
     ModuleConfig,

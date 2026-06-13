@@ -11,6 +11,21 @@ from walkability_analyzer.video_processing.analysis import (
     estimate_crowd_level,
     detect_brightness_segments,
 )
+from walkability_analyzer.video_processing.detectors import (
+    DEFAULT_DETECTORS,
+    brightness_detector,
+    crosswalk_detector,
+    crowd_detector,
+    surface_roughness_detector,
+)
+from walkability_analyzer.video_processing.sam2_detector import (
+    SAM2_AVAILABLE,
+    SAM2FrameAnalyzer,
+    build_sam2_frame_analyzer,
+    SAM2CrowdDetector,
+    build_sam2_crowd_detector,
+)
+from walkability_analyzer.video_processing.pipeline import process_video_to_csv
 
 __all__ = [
     "detect_claps",
@@ -18,4 +33,10 @@ __all__ = [
     "analyze_video",
     "estimate_crowd_level",
     "detect_brightness_segments",
+    "DEFAULT_DETECTORS",
+    "brightness_detector",
+    "crosswalk_detector",
+    "crowd_detector",
+    "surface_roughness_detector",
+    "process_video_to_csv",
 ]
