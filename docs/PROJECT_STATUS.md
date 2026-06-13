@@ -1,8 +1,8 @@
 # Project Status: Walkability Analyzer
 
 **Project:** TheMightyAnalyzer - Automated Walkability Assessment System  
-**Last Updated:** May 30, 2026  
-**Version:** 1.1.0
+**Last Updated:** June 13, 2026  
+**Version:** 1.3.0
 
 ---
 
@@ -146,23 +146,28 @@ The Walkability Analyzer is a comprehensive system for automatically evaluating 
 - **Progress reporting** with INFO/DEBUG logs
 - **Summary CSV** generation for all routes
 
-#### 8. **Video Processing (Implemented)**
-- **Audio-based clap synchronization** via librosa (with audioread fallback for GoPro H.264 containers)
-  - Detects start/end clap events in video audio track
-  - Derives linear `t_sensor = scale * t_video + offset` mapping
-  - Fallback to video-frame-based approximation if audio extraction fails
-- **Brightness / shade detection** — classifies frames as bright or shaded; segments annotated as `light_bright` / `light_dark`
-- **Crowd-level estimation** — edge-density heuristic per frame; segments above threshold annotated as `crowd_high`
-- **Crosswalk detection** — detects crosswalk markings from video frames; annotated as `crosswalk`
-- **Windowed video CSV export** — per-recording `*_video_scores.csv` with 32 time-windows of per-frame detector outputs
-- **Interactive map integration** — video annotation markers (crowd 🟣, crosswalk 🔵, shade 🟡) plotted on route map
-- **OWI EEI module wired** — `VideoAnnotation` objects converted to `crowding_w` / `crossing_complexity_w` / `shade_ratio_w` inputs for the Environmental Experience Index scorer
-- **CLI flags:** `--process-video` (enable), `--no-video` (force skip)
-
-**Validated on:** `test_records/BG_20-10-25/Route4/GX010006.MP4` (1.1 GB GoPro, ~147 s)
-- Clap sync: `t_sensor = 0.983 * t_video + 13.65`
-- 7 annotations: 0 brightness, 1 crowd, 6 crosswalks
-- 32 windowed output rows per recording
+#### 8. **Video Processing (Fully Implemented — SAM2)**
+- **Pluggable per-frame detector architecture** (`detectors.py`)
+  - `brightness_detector` — mean pixel luminance → 1–10 score
+  - `crosswalk_detector` — Hough lines on HSV white mask (classical CV fallback)
+  - `crowd_detector` — MOG2 background subtraction (classical CV fallback)
+  - `surface_roughness_detector` — Laplacian variance on lower-half ROI
+- **SAM2FrameAnalyzer** (`sam2_detector.py`) — single SAM2 pass per frame yields:
+  - `crowd_count` — person-scale mask count (replaces MOG2)
+  - `obstacle_count` — medium objects in walking path
+  - `shade_fraction` — green/dark upper-frame mask coverage (0–1)
+  - `crosswalk_confidence` — wide horizontal stripe masks (replaces Hough)
+  - `crosswalk_detected` — binary flag
+- **Auto-detection**: SAM2 is loaded automatically if `torch`+`sam2` installed and checkpoint present
+- **Laptop optimisations**: `sam2_frame_sample_rate=0.2 Hz`, `max_input_width=640px`, `points_per_side=12`
+- **Single-pass pipeline** (`pipeline.py`): `process_video_to_csv()` runs all detectors in one frame loop → windowed CSV
+- **EEI wiring** (`owi_modular.py`): `video_csv_df_to_env_windows()` converts pipeline CSV to `env_window_data` for OWI EEI module with configurable normalisation (`eei_crowd_max`, `eei_obstacle_max`)
+- **GUI controls**: “Process video” + “Use SAM2” checkboxes in Setup tab; SAM2 status label; auto-ticks when available
+- **Validated on** `test_records/VideoAnalyzeTestFile.mp4` (422 MB, 56 s):
+  - SAM2: crowd 21–33 (stable, realistic) vs. classical CV: 0–265 (garbage)
+  - Crosswalk: fires in 3/12 windows (SAM2) vs. 12/12 (CV, all false positives)
+  - New metrics: obstacle_count 4–15, shade_fraction 0–0.42
+- **CLI flags:** `--process-video`, `--use-sam2`
 
 ---
 
@@ -175,14 +180,15 @@ The Walkability Analyzer is a comprehensive system for automatically evaluating 
 - **CSV format** with 100 Hz sampling rate
 
 ### ✅ Validated Functionality
-- **Route1 Processing:**
-  - 2 recordings successfully processed
-  - 512 steps detected in 382.9s segment
-  - 1138m total distance, 755s total time
-  - Mean cadence: 79.5 steps/minute
-  - Walkability score: 49.7/100
-  - Stomps detected: start=3.71s, end=386.60s
-  - Generated: plots, maps, HTML reports, summary CSV
+- **Route1 Processing (BG 20-10-25)** — sensor + Polar, no video:
+  - Recording 12-41-11: OWI=64.6, MSI=0.554, PCI=0.898, 624m / 372s
+  - Recording 12-48-09: OWI=47.7, MSI=0.293, PCI=0.906, 515m / 383s
+  - Polar HR aligned at 100% window coverage (reduced_pci mode)
+  - Outputs: plots, maps, HTML reports, routes_summary.csv
+- **VideoAnalyzeTestFile.mp4** (422 MB, 56 s):
+  - SAM2 multi-metric pipeline: crowd 21–33, obstacles 4–15, shade 0–0.42, crosswalk in 3/12 windows
+  - Classical CV comparison: crowd 0–265, crosswalk fires every window (all false positives)
+  - CSV saved to `output/test_pipeline_sam2.csv`
 
 ### ✅ Edge Cases Handled
 - Missing stomp detection (uses fallback)
@@ -255,30 +261,31 @@ The Walkability Analyzer is a comprehensive system for automatically evaluating 
 - ✅ Track GPS trajectory and distance
 - ✅ Identify stops and walking patterns
 - ✅ Compute 8+ walking metrics
-- ✅ Calculate walkability scores (0-100)
-- ✅ Generate time series visualizations
-- ✅ Create interactive route maps
-- ✅ Produce professional HTML reports
-- ✅ Process multiple routes in batch
-- ✅ Export summary statistics to CSV
-- ✅ Video processing: clap sync, brightness/crowd/crosswalk detection
-- ✅ Windowed video scores CSV export
-- ✅ Video annotation markers on interactive map
-- ✅ EEI module wired to VideoAnnotation output
+- ✅ OWI v1 Modular score (MSI + EEI + PCI, per-window, 0–100)
+- ✅ Six preset scoring profiles (JSON) + GUI profile editor
+- ✅ Polar HR/HRV integration (absolute timestamp sync, reduced/full PCI)
+- ✅ HR spike detection on route map
+- ✅ Video processing: clap sync, single-pass frame pipeline, windowed CSV
+- ✅ SAM2FrameAnalyzer: crowd, obstacles, shade, crosswalk in one pass
+- ✅ SAM2 auto-detect at startup (checkpoint + package present)
+- ✅ EEI module live: video CSV → crowd/obstacle/shade/crosswalk → OWI score
+- ✅ GUI: preset selector, module/metric weight editor, video + SAM2 toggles
+- ✅ Generate time series visualizations, interactive route maps, HTML reports
+- ✅ Batch processing across multiple routes
+- ✅ Summary CSV with OWI + MSI/EEI/PCI columns
 
-### What's Partially Implemented ⚠️
-- ⚠️ Surface quality detection (defaults to 0.0)
-- ⚠️ Video crowd detection uses edge-density heuristic (not a trained model)
-- ⚠️ Audio extraction requires ffmpeg for optimal speed; falls back to slow `audioread` for H.264 containers
+### What’s Partially Implemented ⚠️
+- ⚠️ `traffic_exposure` EEI metric (no vehicle detector yet; always None)
+- ⚠️ EEI normalisation constants (`eei_crowd_max=40`, `eei_obstacle_max=20`) are configurable but not yet calibrated on annotated ground-truth routes
+- ⚠️ Audio extraction requires ffmpeg for optimal speed; falls back to slow `audioread`
+- ⚠️ Surface roughness score computed but not yet wired into EEI
 
-### What's Not Yet Implemented ❌
-- ❌ ML-based crowd/obstacle detection (YOLO / Faster R-CNN)
-- ❌ Surface quality from accelerometer patterns
-- ❌ Weather condition integration
-- ❌ Accessibility feature detection
+### What’s Not Yet Implemented ❌
+- ❌ `traffic_exposure` from SAM2 vehicle-shaped masks
+- ❌ End-to-end test on a route with *both* sensor data and GoPro video
 - ❌ Real-time processing mode
 - ❌ Mobile app integration
-- ❌ Database storage for results
+- ❌ Weather condition integration
 
 ---
 

@@ -8,19 +8,41 @@ python -m venv venv
 .\venv\Scripts\Activate.ps1
 ```
 
-2. Install dependencies:
+2. Install core dependencies:
 ```powershell
 pip install -r requirements.txt
 ```
 
+3. *(Recommended)* Install SAM2 for accurate video analysis:
+```powershell
+# CPU-only build (suitable for most laptops)
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+pip install git+https://github.com/facebookresearch/sam2.git
+```
+
+4. Download the SAM2 checkpoint (one-time):
+   - URL: https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_tiny.pt
+   - Place at: `walkability_analyzer/video_processing/checkpoints/sam2.1_hiera_tiny.pt`
+   - SAM2 is then **auto-detected** at runtime — no extra flags needed.
+
 ## Running the Analyzer
 
-### Test with Your Existing Data
+### GUI (easiest)
+```powershell
+python run_gui.py
+```
+The Setup tab lets you pick your data folder, scoring preset, physiology source, and toggle video processing + SAM2 with checkboxes.
 
-Using your BG_20-10-25 dataset:
+### Command-line — sensor only
 
 ```powershell
 python -m walkability_analyzer --data-root ".\test_records\BG_20-10-25" --output-root ".\output"
+```
+
+### Command-line — with video (SAM2 auto-detected)
+
+```powershell
+python -m walkability_analyzer --data-root ".\test_records\BG_20-10-25" --output-root ".\output" --process-video
 ```
 
 ### Process a Specific Route
@@ -40,35 +62,30 @@ python -m walkability_analyzer --data-root ".\test_records\BG_20-10-25" --output
 After running, check the `output/` directory:
 
 - `Route1/` - Contains reports for Route1
-  - `<recording>_report.html` - Main report (open in browser)
-  - `<recording>_map.html` - Interactive map
+  - `<recording>_report.html` - Main report with OWI score breakdown (open in browser)
+  - `<recording>_map.html` - Interactive map with video annotation markers
   - `<recording>_plot.png` - Time series visualization
-- `routes_summary.csv` - Summary of all routes
+  - `<recording>_video_scores.csv` - Per-window video metrics (when video processed)
+- `routes_summary.csv` - Summary of all routes (OWI + MSI/EEI/PCI columns)
 
 ## Troubleshooting
 
 ### Module not found errors
-Make sure you're in the project root directory and have activated the virtual environment.
+Make sure you're in the project root directory and the virtual environment is **activated**.
 
 ### No routes found
-Check that your CSV files are in the correct directory structure.
+Check that your CSV files are in the correct directory structure (each route in its own subfolder).
+
+### SAM2 not loading
+Verify the checkpoint file exists at `walkability_analyzer/video_processing/checkpoints/sam2.1_hiera_tiny.pt` and that `torch` + `sam2` are installed in the active venv.
 
 ### Missing GPS data
-The tool will still work with IMU data only, but some features will be limited.
+The tool still works with IMU data only; GPS-based metrics will be absent.
 
 ## Next Steps
 
 1. Review the generated HTML reports
-2. Check the walkability scores in `routes_summary.csv`
-3. Adjust parameters in `walkability_analyzer/config.py` if needed
-4. Process additional routes
-
-## Example with All Routes
-
-```powershell
-# Process all routes in BG dataset
-python -m walkability_analyzer --data-root ".\test_records\BG_20-10-25" --output-root ".\output\bg_analysis"
-
-# Process Tirat Carmel dataset  
-python -m walkability_analyzer --data-root ".\test_records\Tirat Carmel" --output-root ".\output\tirat_analysis"
-```
+2. Check OWI scores and MSI/EEI/PCI breakdown in `routes_summary.csv`
+3. Tune scoring weights via the GUI or by editing `configs/scoring_default.json`
+4. Tune SAM2 EEI normalisation in `walkability_analyzer/config.py` (`eei_crowd_max`, `eei_obstacle_max`)
+5. Process additional routes

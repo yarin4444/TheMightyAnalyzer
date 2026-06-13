@@ -15,15 +15,19 @@ shapely>=2.0.0
 opencv-python>=4.8.0
 
 # Optional: Meta SAM 2 for accurate crowd / object detection
-# Install with CUDA: pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-# Install CPU-only:  pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-# Then:             pip install sam2
-# Checkpoint:       download sam2.1_hiera_tiny.pt from
+# Install CPU-only (laptop):
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+#   pip install git+https://github.com/facebookresearch/sam2.git
+# Install with CUDA:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+#   pip install git+https://github.com/facebookresearch/sam2.git
+# Checkpoint: download sam2.1_hiera_tiny.pt from
 #   https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_tiny.pt
 #   and place at walkability_analyzer/video_processing/checkpoints/sam2.1_hiera_tiny.pt
+# SAM2 is auto-detected at runtime once installed + checkpoint present.
 # torch>=2.3.1
 # torchvision>=0.18.0
-# sam2>=1.0
+# sam2  (install from git, see above)
 
 # Audio processing (for clap detection)
 librosa>=0.10.0
