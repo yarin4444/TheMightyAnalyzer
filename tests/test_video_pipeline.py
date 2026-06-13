@@ -66,7 +66,7 @@ def test_analyze_video_includes_crosswalk_annotations(monkeypatch, tmp_path):
     monkeypatch.setattr(
         analysis,
         "detect_crowd_segments",
-        lambda *_: [VideoAnnotation("crowd_high", 1.0, 2.0, {})],
+        lambda *_, **__: [VideoAnnotation("crowd_high", 1.0, 2.0, {})],
     )
     monkeypatch.setattr(
         analysis,

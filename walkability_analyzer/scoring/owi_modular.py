@@ -486,6 +486,61 @@ def _aggregate_window_owi(
 # Physiology / environment window lookup helpers
 # ---------------------------------------------------------------------------
 
+def video_csv_df_to_env_windows(
+    df: "pd.DataFrame",
+    window_sec: float,
+    crowd_max: float = 40.0,
+    obstacle_max: float = 20.0,
+) -> List[Dict]:
+    """Convert a *_video_scores.csv DataFrame (from process_video_to_csv) into
+    the env-dict list expected by _get_env_window / compute_owi_modular.
+
+    Each row in *df* represents one time window.  The function normalises the
+    raw SAM2 / CV metric values into [0, 1] scores and adds ``t_start`` /
+    ``t_end`` keys so that ``_get_env_window`` can look them up by midpoint.
+
+    Normalisation:
+        crowd_count   :  0 → 0.0  …  crowd_max   → 1.0  (SAM2 person-scale masks)
+        obstacle_count:  0 → 0.0  …  obstacle_max → 1.0
+        shade_fraction:  already [0, 1]
+        crosswalk_confidence: already [0, 1]
+
+    crowd_max / obstacle_max default to VideoConfig.eei_crowd_max /
+    eei_obstacle_max and should be tuned per deployment environment.
+
+    Args:
+        df:            DataFrame returned by ``process_video_to_csv()``.
+                       Must contain a ``timestamp_s`` column (window start).
+        window_sec:    Width of each window in seconds.
+        crowd_max:     SAM2 crowd_count value that maps to crowding_w = 1.0.
+        obstacle_max:  SAM2 obstacle_count value that maps to obstacle_load_w = 1.0.
+
+    Returns:
+        List of dicts with keys: t_start, t_end, and any of
+        crowding_w, obstacle_load_w, shade_ratio_w, crossing_complexity_w.
+    """
+    result: List[Dict] = []
+    for _, row in df.iterrows():
+        t_start = float(row["timestamp_s"])
+        t_end   = t_start + window_sec
+        env: Dict = {"t_start": t_start, "t_end": t_end}
+
+        if "crowd_count" in row and pd.notna(row["crowd_count"]):
+            env["crowding_w"] = float(np.clip(row["crowd_count"] / crowd_max, 0.0, 1.0))
+
+        if "obstacle_count" in row and pd.notna(row["obstacle_count"]):
+            env["obstacle_load_w"] = float(np.clip(row["obstacle_count"] / obstacle_max, 0.0, 1.0))
+
+        if "shade_fraction" in row and pd.notna(row["shade_fraction"]):
+            env["shade_ratio_w"] = float(np.clip(row["shade_fraction"], 0.0, 1.0))
+
+        if "crosswalk_confidence" in row and pd.notna(row["crosswalk_confidence"]):
+            env["crossing_complexity_w"] = float(np.clip(row["crosswalk_confidence"], 0.0, 1.0))
+
+        result.append(env)
+    return result
+
+
 def _video_annotation_to_env_dict(ann) -> Dict:
     """Convert a VideoAnnotation object to the env-dict format expected by _compute_window_eei."""
     ann_type = ann.annotation_type.lower()

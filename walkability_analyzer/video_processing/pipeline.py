@@ -11,9 +11,28 @@ import cv2
 import pandas as pd
 
 from walkability_analyzer.data_structures import TimeSync
-from walkability_analyzer.video_processing.detectors import DEFAULT_DETECTORS, FrameDetector
+from walkability_analyzer.video_processing.detectors import (
+    DEFAULT_DETECTORS,
+    FrameDetector,
+    brightness_detector,
+    surface_roughness_detector,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _build_detector_list(sam2_analyzer=None) -> List[FrameDetector]:
+    """Return the detector list to use, substituting SAM2-backed detectors when available.
+
+    When *sam2_analyzer* is provided (a SAM2FrameAnalyzer instance), it replaces
+    the classical-CV crowd_detector and crosswalk_detector with a single SAM2 pass
+    that produces: crowd_count, obstacle_count, shade_fraction, crosswalk_confidence,
+    crosswalk_detected.  brightness_detector and surface_roughness_detector are kept
+    (classical CV is accurate enough for those two).
+    """
+    if sam2_analyzer is not None:
+        return [brightness_detector, sam2_analyzer, surface_roughness_detector]
+    return list(DEFAULT_DETECTORS)
 
 
 def process_video_to_csv(
@@ -23,6 +42,7 @@ def process_video_to_csv(
     sample_rate_hz: float = 2.0,
     window_sec: float = 5.0,
     detectors: Optional[List[FrameDetector]] = None,
+    sam2_analyzer=None,
 ) -> pd.DataFrame:
     """Run all detectors on a video and write windowed results to output_csv.
 
@@ -32,13 +52,16 @@ def process_video_to_csv(
         output_csv:     Destination CSV path.
         sample_rate_hz: Frames per second to analyse.
         window_sec:     Aggregation window size in seconds (sensor time).
-        detectors:      List of per-frame detector callables. Defaults to DEFAULT_DETECTORS.
+        detectors:      Explicit detector list (overrides sam2_analyzer when set).
+        sam2_analyzer:  Optional SAM2FrameAnalyzer instance.  When provided and
+                        *detectors* is None, replaces classical crowd + crosswalk
+                        detectors with a single SAM2 multi-metric pass.
 
     Returns:
         DataFrame of windowed results (also saved to output_csv).
     """
     if detectors is None:
-        detectors = DEFAULT_DETECTORS
+        detectors = _build_detector_list(sam2_analyzer)
 
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
@@ -71,7 +94,8 @@ def process_video_to_csv(
                 try:
                     row.update(det(frame))
                 except Exception as exc:
-                    logger.warning(f"Detector {det.__name__} failed on frame {frame_idx}: {exc}")
+                    det_name = getattr(det, '__name__', type(det).__name__)
+                    logger.warning(f"Detector {det_name} failed on frame {frame_idx}: {exc}")
             rows.append(row)
 
         frame_idx += 1
