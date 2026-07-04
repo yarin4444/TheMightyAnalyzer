@@ -47,9 +47,10 @@ except ImportError:
 _DEFAULT_CKPT = Path(__file__).parent / "checkpoints" / "sam2.1_hiera_tiny.pt"
 _DEFAULT_CFG  = "configs/sam2.1/sam2.1_hiera_t.yaml"
 
-# Typical person pixel area bounds at common GoPro resolutions (1080p / 4K)
-_PERSON_MIN_AREA_RATIO = 0.001   # >0.1 % of frame area
-_PERSON_MAX_AREA_RATIO = 0.40    # <40 % of frame area
+# Person area bounds (calibrated for GoPro wide-angle footage at walking distance).
+# A pedestrian at 3–10 m distance typically covers ~1–15% of a 640-px-wide frame.
+_PERSON_MIN_AREA_RATIO = 0.010   # >1.0 % of frame area
+_PERSON_MAX_AREA_RATIO = 0.15    # <15 % of frame area
 
 
 class SAM2CrowdDetector:
@@ -171,12 +172,18 @@ class SAM2FrameAnalyzer:
             bx, by, bw, bh = m["bbox"]   # [x, y, width, height]
             cy = by + bh / 2              # vertical centre of mask
 
-            # ── Crowd: person-scale objects anywhere in frame ──────────────
+            # ── Crowd: person-scale objects ─────────────────────────────
+            # Criteria: area 1-15%, taller-than-wide (portrait aspect ratio),
+            # vertically centred in the lower 80% of frame (not sky).
             if _PERSON_MIN_AREA_RATIO <= ratio <= _PERSON_MAX_AREA_RATIO:
-                crowd_count += 1
+                aspect_ok = (bh > bw * 0.8)          # person is taller than wide
+                position_ok = (cy > h * 0.20)         # not in the very top (sky)
+                if aspect_ok and position_ok:
+                    crowd_count += 1
 
-            # ── Obstacle: medium objects in lower 2/3 of frame ────────────
-            if 0.005 <= ratio <= 0.15 and cy > h * 0.33:
+            # ── Obstacle: medium objects in lower half of frame ───────────
+            # Smaller area range than person; must be in the bottom 60%.
+            if 0.005 <= ratio <= 0.10 and cy > h * 0.40:
                 obstacle_count += 1
 
             # ── Shade / vegetation: upper-half masks with green dominance
@@ -193,8 +200,14 @@ class SAM2FrameAnalyzer:
                     if is_vegetation or is_dark_shade:
                         shade_pixels += area
 
-            # ── Crosswalk: wide, short, horizontal stripe in lower frame ──
-            if bw > w * 0.25 and 0 < bh < h * 0.08 and cy > h * 0.40:
+            # ── Crosswalk: wide, very thin, horizontal stripe in lower frame ──
+            # A real zebra-crossing stripe spans >40% of frame width, is very
+            # short (<5% frame height), has extreme horizontal aspect ratio
+            # (width/height > 8), and appears strictly in the bottom half.
+            if (bw > w * 0.40 and
+                    0 < bh < h * 0.05 and
+                    bh > 0 and bw / bh > 8 and
+                    cy > h * 0.55):
                 crosswalk_candidates += 1
 
         shade_fraction = round(min(1.0, shade_pixels / max(1, frame_area * 0.5)), 3)
