@@ -13,7 +13,7 @@ logging.basicConfig(
 ROUTE_PATH = Path("test_records/BG_20-10-25/Route4")
 RECORDING_ID = "20-10-2025_12-27-29"
 VIDEO_FILE = "GX010006.MP4"
-OUTPUT_ROOT = Path("output/route4_sam2_single")
+OUTPUT_ROOT = Path("output/route4_sam2_v2")
 
 from walkability_analyzer.io_utils import load_route
 from walkability_analyzer.main import process_route
@@ -53,6 +53,8 @@ result = process_route(
 print("\n=== DONE ===")
 if result is not None:
     route_metrics, owi_result = result
-    print(f"OWI score : {owi_result.walkability_score:.1f}/100")
-    print(f"MSI mean  : {owi_result.msi_mean:.3f}")
-    print(f"EEI mean  : {owi_result.eei_mean:.3f}")
+    print(f"OWI score : {owi_result.route_score:.1f}/100")
+    msi = owi_result.module_scores_summary.get('msi')
+    eei = owi_result.module_scores_summary.get('eei')
+    print(f"MSI       : {msi:.3f}" if msi is not None else "MSI       : None")
+    print(f"EEI       : {eei:.3f}" if eei is not None else "EEI       : None")
