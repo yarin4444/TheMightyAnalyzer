@@ -1,9 +1,5 @@
 # .gitignore for Walkability Analyzer
 
-# SAM 2 model checkpoints (large binary files — download separately)
-walkability_analyzer/video_processing/checkpoints/*.pt
-walkability_analyzer/video_processing/checkpoints/*.pth
-
 # Python
 __pycache__/
 *.py[cod]
@@ -40,6 +36,10 @@ ENV/
 *~
 .DS_Store
 
+# SAM 2 model checkpoints (download separately)
+walkability_analyzer/video_processing/checkpoints/*.pt
+walkability_analyzer/video_processing/checkpoints/*.pth
+
 # Jupyter Notebook
 .ipynb_checkpoints
 
@@ -48,12 +48,22 @@ output/
 results/
 reports/
 
-# Test data (exclude raw recordings folder and large binary files)
+# Experimental recordings and generated analysis data
 test_records/
 *.mat
 *.mp4
 *.avi
 *.mov
+
+# Thesis documents and thesis-specific working materials
+References/
+updated_thesis/
+docs/CLAUDE.md
+docs/Scientific_Analysis/
+docs/Thesis/
+docs/thesis_explanations/
+scripts/thesis_chapter4/
+scripts/thesis_chapter5/
 
 # Logs
 *.log
