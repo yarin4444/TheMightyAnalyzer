@@ -9,8 +9,9 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 
 from walkability_analyzer.config import SENSOR_CONFIG, SCORING_CONFIG, VIDEO_CONFIG
-from walkability_analyzer.data_structures import RouteData, PhysiologyMode, PhysiologyResult
+from walkability_analyzer.data_structures import RouteData, PhysiologyMode, PhysiologyResult, SegmentAnnotation
 from walkability_analyzer.io_utils import discover_routes, load_route
+from walkability_analyzer.sensor_processing import gait
 from walkability_analyzer.sensor_processing import (
     clean_sensor_data,
     compute_acceleration_magnitude,
@@ -166,19 +167,39 @@ def process_recording(
     
     # Extract walking segment
     walking_segment = extract_walking_segment(df, t_start, t_end)
+    fs = recording.sampling_rate
+    walking_segment = gait.add_gait_signals(walking_segment, fs, SENSOR_CONFIG)
     
-    # Detect steps
-    step_times = detect_steps(
-        walking_segment["acc_mag"],
-        recording.sampling_rate,
-        t_start,
-        t_end,
-        SENSOR_CONFIG
-    )
+    # Detect steps (orientation-invariant detector by default, thesis Section 4.1.1)
+    legacy_steps = detect_steps(walking_segment["acc_mag"], fs, t_start, t_end, SENSOR_CONFIG)
+    if SENSOR_CONFIG.step_method == "vertical" and "acc_v_bp" in walking_segment.columns:
+        step_times = gait.detect_steps_vertical(walking_segment, fs, SENSOR_CONFIG)
+    else:
+        step_times = legacy_steps
     
     # Detect weird segments
     annotations = detect_weird_segments(walking_segment, SENSOR_CONFIG)
     
+    # GPS-detected stops are kept only if the IMU also shows reduced stepping
+    for ann in annotations:
+        if ann.segment_type == "stop" and step_times:
+            chk = gait.imu_check(walking_segment, step_times, ann.start_time, ann.end_time, SENSOR_CONFIG)
+            ann.metadata = {**(ann.metadata or {}), **chk}
+            if not chk["confirmed"]:
+                ann.segment_type = "gps_artifact"
+                ann.label = (f"GPS stop not confirmed by IMU (step rate {100 * chk['step_rate_ratio']:.0f}% "
+                             f"of segment)")
+
+    # GPS-speed reductions, accepted as slowdowns only when confirmed by the IMU (Section 4.5)
+    reductions = gait.detect_speed_reductions(walking_segment, fs, step_times, SENSOR_CONFIG)
+    for r in reductions:
+        kind = "slowdown" if r["confirmed"] else "gps_artifact"
+        label = (f"GPS speed {r['speed']:.2f} m/s ({100 * r['speed_ratio']:.0f}% of mean); "
+                 f"IMU step rate {100 * r['step_rate_ratio']:.0f}%, RMS {100 * r['rms_ratio']:.0f}% of segment")
+        w = SENSOR_CONFIG.slowdown_confirm_window_s
+        annotations.append(SegmentAnnotation(segment_type=kind, start_time=r["time"] - w, end_time=r["time"] + w,
+                                             label=label, metadata=r))
+
     # Compute metrics
     stops = [
         {"duration": ann.end_time - ann.start_time}
@@ -192,6 +213,13 @@ def process_recording(
         t_start,
         t_end,
         stops
+    )
+    metrics.update(gait.gait_summary(walking_segment, fs, SENSOR_CONFIG))
+    metrics.update(
+        step_method=SENSOR_CONFIG.step_method,
+        num_steps_magnitude_detector=len(legacy_steps),
+        num_slowdowns_confirmed=sum(r["confirmed"] for r in reductions),
+        num_gps_speed_artifacts=sum(not r["confirmed"] for r in reductions),
     )
     
     # Process video if requested and available
@@ -516,6 +544,7 @@ def process_route(
         all_recording_metrics,
         all_video_metrics if all_video_metrics else None,
     )
+    route_metrics.recording_metrics = all_recording_metrics
 
     # Use the last recording’s result as the route result when available.
     # For the legacy path the route-level Cardoso score is preferred.

@@ -69,20 +69,39 @@ def create_time_series_plot(
     ax1.axvline(t_end, color='orange', linestyle='--', linewidth=2, label='End Stomp', alpha=0.8)
     
     # Overlay annotations
+    span_style = {
+        "stop": dict(alpha=0.3, color="red", label="Stop"),
+        "change": dict(alpha=0.2, color="yellow", label="Change"),
+        "slowdown": dict(alpha=0.3, color="tab:blue", label="Slowdown (IMU-confirmed)"),
+        "gps_artifact": dict(alpha=0.25, color="gray", hatch="//", label="GPS-speed artefact (not confirmed by IMU)"),
+    }
     for ann in annotations:
-        if ann.segment_type == "stop":
-            ax1.axvspan(ann.start_time, ann.end_time, alpha=0.3, color='red', label='Stop' if 'Stop' not in [l.get_label() for l in ax1.get_legend_handles_labels()[0]] else '')
-        elif ann.segment_type == "change":
-            ax1.axvspan(ann.start_time, ann.end_time, alpha=0.2, color='yellow', label='Change' if 'Change' not in [l.get_label() for l in ax1.get_legend_handles_labels()[0]] else '')
+        style = dict(span_style.get(ann.segment_type, {}))
+        if not style:
+            continue
+        if style["label"] in ax1.get_legend_handles_labels()[1]:
+            style["label"] = None
+        ax1.axvspan(ann.start_time, ann.end_time, **style)
     
     ax1.legend(loc='upper right', fontsize=9)
     ax1.set_title(title, fontsize=13, fontweight='bold')
     
-    # Plot 2: Acceleration magnitude with step detection
+    # Plot 2: gravity-projected band-passed acceleration (orientation-invariant) or the magnitude
     ax2 = axes[1]
     
-    # Always plot acceleration magnitude
-    if all(col in walking_segment.columns for col in ["accel_x", "accel_y", "accel_z"]):
+    if "acc_v_bp" in walking_segment.columns:
+        sig = walking_segment["acc_v_bp"]
+        ax2.plot(time, sig, color="tab:green", linewidth=0.7, alpha=0.8, label="Vertical acceleration, 0.5-3 Hz")
+        if step_times:
+            idx = walking_segment.index.get_indexer(step_times, method="nearest")
+            ax2.scatter(step_times, sig.iloc[idx], c="black", s=14, marker="v",
+                        label=f"Candidate step events (n={len(step_times)})", zorder=5)
+        ax2.axvline(t_start, color='darkgreen', linestyle='--', linewidth=2, alpha=0.9, label='Start stomp-clap event')
+        ax2.axvline(t_end, color='darkorange', linestyle='--', linewidth=2, alpha=0.9, label='End stomp')
+        ax2.set_ylabel('$a_v$ (m/s²)', fontsize=11)
+        ax2.grid(True, alpha=0.3)
+        ax2.legend(loc='upper right', fontsize=9)
+    elif all(col in walking_segment.columns for col in ["accel_x", "accel_y", "accel_z"]):
         acc_mag = np.sqrt(
             walking_segment["accel_x"]**2 + 
             walking_segment["accel_y"]**2 + 

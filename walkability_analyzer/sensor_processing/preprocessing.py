@@ -134,20 +134,15 @@ def compute_gps_features(df: pd.DataFrame, interpolation_limit: int = 5) -> pd.D
         df["gps_course"] = df["course"].interpolate(limit=interpolation_limit)
         logger.debug("Processing GPS course/heading data")
     
-    # Compute distance between consecutive points
-    distances = []
-    for i in range(len(df)):
-        if i == 0:
-            distances.append(0.0)
-        else:
-            lat1, lon1 = df.iloc[i-1][["latitude", "longitude"]]
-            lat2, lon2 = df.iloc[i][["latitude", "longitude"]]
-            
-            if pd.notna(lat1) and pd.notna(lon1) and pd.notna(lat2) and pd.notna(lon2):
-                dist = haversine_distance(lat1, lon1, lat2, lon2)
-                distances.append(dist)
-            else:
-                distances.append(0.0)
+    # Distance between consecutive points (vectorized haversine)
+    lat = df["latitude"].to_numpy(dtype=float)
+    lon = df["longitude"].to_numpy(dtype=float)
+    lat_prev = np.roll(lat, 1)
+    lon_prev = np.roll(lon, 1)
+    valid = ~np.isnan(lat) & ~np.isnan(lon) & ~np.isnan(lat_prev) & ~np.isnan(lon_prev)
+    valid[0] = False
+    distances = np.zeros(len(df))
+    distances[valid] = haversine_distance(lat_prev[valid], lon_prev[valid], lat[valid], lon[valid])
     
     df["gps_distance"] = distances
     df["gps_cumulative_distance"] = df["gps_distance"].cumsum()
@@ -157,13 +152,25 @@ def compute_gps_features(df: pd.DataFrame, interpolation_limit: int = 5) -> pd.D
         df["gps_speed"] = df["speed"]
         logger.debug("Using existing speed column from GPS data")
     else:
-        time_diff = df.index.to_series().diff().dt.total_seconds()
+        time_diff = df.index.to_series().diff()
+        if hasattr(time_diff, "dt"):
+            time_diff = time_diff.dt.total_seconds()
         df["gps_speed"] = df["gps_distance"] / time_diff
         logger.debug("Computing speed from distance and time")
     
     # Clean up infinite/invalid speeds
     df["gps_speed"] = df["gps_speed"].replace([np.inf, -np.inf], np.nan)
     df["gps_speed"] = df["gps_speed"].fillna(0.0)
+
+    # Trapezoidal integral of speed: immune to the 1e-5 deg coordinate quantization
+    # that inflates summed fix-to-fix haversine distances.
+    t_s = np.asarray(df.index, dtype=float)
+    v = df["gps_speed"].clip(lower=0).to_numpy(dtype=float)
+    seg_dist = np.zeros(len(df))
+    if len(df) > 1:
+        seg_dist[1:] = 0.5 * (v[1:] + v[:-1]) * np.diff(t_s)
+    df["gps_distance_speed"] = seg_dist
+    df["gps_cumulative_distance_speed"] = np.cumsum(seg_dist)
     
     # Apply some smoothing to speed
     if len(df) > 10:

@@ -517,6 +517,12 @@ def create_html_report(
         .annotation-item.hr_spike {{
             border-left-color: #c0392b;
         }}
+        .annotation-item.slowdown {{
+            border-left-color: #2a81cb;
+        }}
+        .annotation-item.gps_artifact {{
+            border-left-color: #7b7b7b;
+        }}
         .description {{
             background-color: #fff9e6;
             padding: 15px;
@@ -575,12 +581,16 @@ def create_html_report(
     metric_items = [
         ("Total Walking Time", metrics.get("total_walking_time"), "seconds"),
         ("Total Distance", metrics.get("total_distance"), "meters"),
+        ("Distance (haversine sum, reference)", metrics.get("total_distance_haversine"), "meters"),
         ("Mean Speed", metrics.get("mean_speed"), "m/s"),
         ("Median Step Length", metrics.get("median_step_length"), "meters"),
         ("Mean Cadence", metrics.get("mean_cadence"), "steps/min"),
-        ("Number of Steps", metrics.get("num_steps"), "steps"),
+        ("Spectral Cadence", metrics.get("cadence_spectral_spm"), "steps/min"),
+        ("Candidate Step Events", metrics.get("num_steps"), "steps"),
         ("Number of Stops", metrics.get("number_of_stops"), "stops"),
         ("Stop Time Fraction", metrics.get("fraction_of_time_stopped"), "%"),
+        ("Slowdowns (IMU-confirmed)", metrics.get("num_slowdowns_confirmed"), "events"),
+        ("GPS-speed Artefacts", metrics.get("num_gps_speed_artifacts"), "events"),
     ]
     
     for label, value, unit in metric_items:

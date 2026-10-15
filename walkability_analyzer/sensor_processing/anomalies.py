@@ -134,15 +134,17 @@ def detect_walking_changes(
     """
     changes = []
     
-    # Compute speed derivative (acceleration in m/s^2)
-    speed_change = speed.diff().abs()
+    # Speed change over a fixed time span (a per-sample difference is meaningless at 100 Hz)
+    dt = float(np.median(np.diff(np.asarray(time_index, dtype=float)))) if len(time_index) > 1 else 1.0
+    lag = max(1, int(round(getattr(config, "speed_change_window_s", 1.0) / dt)))
+    speed_change = (speed - speed.shift(lag)).abs()
     
     # Find points where speed changes significantly
     threshold = config.speed_change_threshold
     significant_changes = speed_change > threshold
     
     # Group nearby changes into segments
-    window = config.window_size
+    window = max(config.window_size, lag)
     
     change_indices = np.where(significant_changes)[0]
     

@@ -128,6 +128,12 @@ def create_route_map(
                 elif ann.segment_type == "hr_spike":
                     icon_color = 'darkred'
                     icon_name = 'heartbeat'
+                elif ann.segment_type == "slowdown":
+                    icon_color = 'blue'
+                    icon_name = 'arrow-down'
+                elif ann.segment_type == "gps_artifact":
+                    icon_color = 'gray'
+                    icon_name = 'question'
                 else:
                     icon_color = 'blue'
                     icon_name = 'info-sign'
@@ -195,6 +201,8 @@ def create_route_map(
   <span style="color:#d62728;font-size:18px;font-weight:bold;">&#9632;</span>&nbsp; Route End<br>
   <span style="color:#e67e22;font-size:16px;">&#9646;</span>&nbsp; Stop<br>
   <span style="color:#1a78a8;font-size:16px;">&#9998;</span>&nbsp; Gait change<br>
+  <span style="color:#2a81cb;font-size:16px;">&#11015;</span>&nbsp; Slowdown (IMU-confirmed)<br>
+  <span style="color:#7b7b7b;font-size:16px;">&#63;</span>&nbsp; GPS-speed artefact<br>
   <span style="color:#c0392b;font-size:16px;">&#10084;</span>&nbsp; HR spike<br>
   <span style="color:#9b59b6;font-size:16px;">&#128101;</span>&nbsp; Crowding (video)<br>
 </div>

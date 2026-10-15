@@ -8,6 +8,7 @@ from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 
+from walkability_analyzer.config import SENSOR_CONFIG
 from walkability_analyzer.data_structures import RouteMetrics, SensorRecording
 
 logger = logging.getLogger(__name__)
@@ -51,8 +52,17 @@ def compute_recording_metrics(
     
     # GPS-based metrics
     if "gps_cumulative_distance" in walking_segment.columns:
-        total_distance = walking_segment["gps_cumulative_distance"].iloc[-1]
+        def seg_distance(col):
+            c = walking_segment[col]
+            return float(c.iloc[-1] - c.iloc[0])
+
+        metrics["total_distance_haversine"] = seg_distance("gps_cumulative_distance")
+        use_speed = (getattr(SENSOR_CONFIG, "distance_method", "speed") == "speed"
+                     and "gps_cumulative_distance_speed" in walking_segment.columns)
+        dist_col = "gps_distance_speed" if use_speed else "gps_distance"
+        total_distance = seg_distance("gps_cumulative_distance_speed" if use_speed else "gps_cumulative_distance")
         metrics["total_distance"] = total_distance
+        metrics["distance_method"] = "speed_integral" if use_speed else "haversine_sum"
         
         if metrics["total_walking_time"] > 0:
             metrics["mean_speed"] = total_distance / metrics["total_walking_time"]
@@ -97,7 +107,7 @@ def compute_recording_metrics(
             for i in range(len(step_times) - 1):
                 t1, t2 = step_times[i], step_times[i+1]
                 mask = (walking_segment.index >= t1) & (walking_segment.index < t2)
-                step_dist = walking_segment.loc[mask, "gps_distance"].sum()
+                step_dist = walking_segment.loc[mask, dist_col].sum()
                 step_distances.append(step_dist)
             
             if step_distances:
@@ -125,13 +135,15 @@ def compute_recording_metrics(
     else:
         metrics["fraction_of_time_stopped"] = 0.0
     
-    # Surface roughness (acceleration variance proxy)
-    if "accel_z" in walking_segment.columns:
-        metrics["surface_roughness"] = walking_segment["accel_z"].var()
+    # Surface roughness from the gravity-projected (orientation-invariant) acceleration when available
+    vert_col = "acc_v" if "acc_v" in walking_segment.columns else ("accel_z" if "accel_z" in walking_segment.columns else None)
+    if vert_col is not None:
+        metrics["surface_signal"] = vert_col
+        metrics["surface_roughness"] = walking_segment[vert_col].var()
         
         # Surface quality: high-pass filtered vertical acceleration RMS
         # Lower roughness = higher quality
-        accel_z = walking_segment["accel_z"].values
+        accel_z = walking_segment[vert_col].values
         
         # High-pass filter to remove gravity/constant components
         # Simple approach: subtract moving average (0.5s window at ~100Hz = 50 samples)

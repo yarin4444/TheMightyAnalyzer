@@ -40,11 +40,31 @@ class SensorConfig:
     # Weird segment detection
     stop_speed_threshold: float = 0.3  # m/s
     stop_min_duration: float = 2.0  # seconds
-    speed_change_threshold: float = 1.0  # m/s change
+    speed_change_threshold: float = 1.0  # m/s change within speed_change_window_s
+    speed_change_window_s: float = 1.0  # seconds (time-based; GPS is resampled to 100 Hz)
     window_size: int = 10  # samples for sliding window
     
     # GPS processing
     gps_interpolation_limit: int = 5  # max consecutive missing GPS points to interpolate
+    distance_method: str = "speed"  # "speed" (trapezoidal integral of speed) or "haversine" (sum of fix distances)
+
+    # Orientation-invariant gait processing (thesis Section 4.1.1)
+    step_method: str = "vertical"  # "vertical" (gravity-projected, band-passed) or "magnitude" (legacy detect_steps)
+    gravity_cutoff_hz: float = 0.3
+    gait_band_low_hz: float = 0.5
+    gait_band_high_hz: float = 3.0
+    step_prominence_k: float = 0.5  # minimum peak prominence in std of the band-passed signal
+    stride_min_interval: float = 0.6  # seconds between gyroscope stride peaks
+    welch_window_s: float = 10.0
+
+    # GPS-speed reductions and IMU confirmation (thesis Section 4.5)
+    slowdown_median_window_s: float = 2.0
+    slowdown_rel_threshold: float = 0.7  # local minimum <= 0.7 x segment mean speed
+    slowdown_min_separation_s: float = 5.0
+    slowdown_edge_margin_s: float = 5.0  # ignore candidates near the start/end stomps
+    slowdown_confirm_window_s: float = 3.0  # +- window for IMU step rate / RMS
+    slowdown_confirm_ratio: float = 0.8  # confirmed if IMU step rate <= 0.8 x segment rate
+    slowdown_confirm_rms_ratio: float = 0.7  # ... or vertical-acceleration RMS <= 0.7 x segment RMS
     
 
 @dataclass
