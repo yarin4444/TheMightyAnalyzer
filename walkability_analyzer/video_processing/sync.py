@@ -8,6 +8,7 @@ from typing import Optional, Tuple
 
 import cv2
 import numpy as np
+from scipy.signal import butter, sosfiltfilt
 
 from walkability_analyzer.config import VIDEO_CONFIG
 from walkability_analyzer.data_structures import TimeSync
@@ -23,6 +24,21 @@ except ImportError:
     logger.warning("librosa not available, audio-based clap detection will be limited")
 
 
+def _extract_audio_pyav(video_path: Path) -> Tuple[np.ndarray, int]:
+    """Mono audio at the native sample rate, decoded with PyAV (thesis Section 4.4 / Table 5)."""
+    import av
+
+    with av.open(str(video_path)) as container:
+        stream = container.streams.audio[0]
+        sr = stream.codec_context.sample_rate
+        resampler = av.AudioResampler(format="flt", layout="mono", rate=sr)
+        chunks = []
+        for frame in container.decode(stream):
+            for out in resampler.resample(frame):
+                chunks.append(out.to_ndarray().reshape(-1))
+    return np.concatenate(chunks).astype(np.float32), int(sr)
+
+
 def extract_audio_from_video(video_path: Path) -> Optional[Tuple[np.ndarray, int]]:
     """Extract audio track from video file.
     
@@ -32,6 +48,13 @@ def extract_audio_from_video(video_path: Path) -> Optional[Tuple[np.ndarray, int
     Returns:
         Tuple of (audio_signal, sample_rate) or None if extraction fails
     """
+    try:
+        audio, sr = _extract_audio_pyav(video_path)
+        logger.info(f"Extracted audio (PyAV): {len(audio)} samples at {sr} Hz")
+        return audio, sr
+    except Exception as e:
+        logger.warning(f"PyAV audio extraction failed for {video_path}: {e}")
+
     if not LIBROSA_AVAILABLE:
         logger.warning("librosa not available, cannot extract audio")
         return None
@@ -50,80 +73,80 @@ def detect_claps(
     video_path: Path,
     config: Optional[object] = None
 ) -> Tuple[Optional[float], Optional[float]]:
-    """Detect start and end claps in video audio.
-    
-    Args:
-        video_path: Path to video file
-        config: Optional VideoConfig object
-        
-    Returns:
-        Tuple of (t_clap_start, t_clap_end) in video time (seconds)
+    """Detect start and end claps in video audio; returns (t_clap_start, t_clap_end) in video seconds."""
+    info = detect_claps_detailed(video_path, config)
+    return info["t_start"], info["t_end"]
+
+
+def clap_energy(audio: np.ndarray, sr: int, highpass_hz: float = 0.0) -> Tuple[np.ndarray, np.ndarray]:
+    """Short-time RMS energy (thesis Section 4.2): E[m] = sqrt(1/L sum x^2[mH+n]), t = mH/fa, L = 25 ms, H = 10 ms."""
+    if highpass_hz and highpass_hz < sr / 2:
+        sos = butter(4, highpass_hz, "high", fs=sr, output="sos")
+        audio = sosfiltfilt(sos, audio)
+    frame_length = int(0.025 * sr)
+    hop_length = int(0.010 * sr)
+    n_frames = max(0, (len(audio) - frame_length) // hop_length + 1)
+    sq = np.concatenate([[0.0], np.cumsum(np.asarray(audio, dtype=np.float64) ** 2)])
+    starts = np.arange(n_frames) * hop_length
+    return starts / sr, np.sqrt((sq[starts + frame_length] - sq[starts]) / frame_length)
+
+
+def detect_claps_detailed(video_path: Path, config: Optional[object] = None) -> dict:
+    """Clap detection with diagnostics.
+
+    Within each search window the strongest energy frame is taken as the clap and accepted when it exceeds
+    mu_E + k*sigma_E of the whole (high-passed) recording. Street noise is mostly low-frequency, so the
+    high-pass makes the clap the dominant transient (verified on P04: claps at 13.68 s and 777.29 s).
     """
     if config is None:
         config = VIDEO_CONFIG
-    
-    # Extract audio
+    info = {"t_start": None, "t_end": None, "method": "audio", "start_in_window": False, "end_in_window": False}
+
     audio_data = extract_audio_from_video(video_path)
-    
     if audio_data is None:
         logger.warning("Audio extraction failed, using video-based approximation")
-        return _detect_claps_from_video_frames(video_path, config)
-    
+        info["t_start"], info["t_end"] = _detect_claps_from_video_frames(video_path, config)
+        info["method"] = "video-frame fallback"
+        return info
+
     audio, sr = audio_data
-    
-    # Compute short-time energy
-    frame_length = int(0.025 * sr)  # 25ms frames
-    hop_length = int(0.010 * sr)    # 10ms hop
-    
-    # Compute energy using librosa
-    if LIBROSA_AVAILABLE:
-        energy = librosa.feature.rms(y=audio, frame_length=frame_length, hop_length=hop_length)[0]
-    else:
-        # Simple energy computation
-        energy = []
-        for i in range(0, len(audio) - frame_length, hop_length):
-            frame = audio[i:i+frame_length]
-            energy.append(np.sqrt(np.mean(frame**2)))
-        energy = np.array(energy)
-    
-    # Convert frame indices to time
-    time = np.arange(len(energy)) * hop_length / sr
-    
-    # Detect peaks above threshold
-    mean_energy = energy.mean()
-    std_energy = energy.std()
-    threshold = mean_energy + config.clap_energy_threshold_multiplier * std_energy
-    
+    hp = getattr(config, "clap_highpass_hz", 0.0)
+    time, energy = clap_energy(audio, sr, hp)
+    if len(energy) == 0:
+        return info
+    info["highpass_hz"] = hp
+    return pick_claps(time, energy, config, info)
+
+
+def pick_claps(time: np.ndarray, energy: np.ndarray, config, info: Optional[dict] = None) -> dict:
+    """Strongest energy frame per search window, accepted above mu_E + k*sigma_E of the whole recording."""
+    info = info if info is not None else {"t_start": None, "t_end": None, "start_in_window": False, "end_in_window": False}
+    threshold = energy.mean() + config.clap_energy_threshold_multiplier * energy.std()
+    info.update(threshold=float(threshold), duration_s=float(time[-1]))
+
+    skip = getattr(config, "clap_skip_initial_s", 0.0)
+    win_s = (time >= skip) & (time < config.clap_search_window_start)
+    win_e = time > time[-1] - config.clap_search_window_end
     peaks = np.where(energy > threshold)[0]
-    
-    if len(peaks) < 2:
-        logger.warning(f"Found {len(peaks)} clap candidates, expected at least 2")
-        return None, None
-    
-    # Search for start clap
-    search_start = config.clap_search_window_start
-    start_candidates = peaks[time[peaks] < search_start]
-    
-    if len(start_candidates) > 0:
-        t_start = time[start_candidates[0]]
-    else:
-        t_start = time[peaks[0]]
-        logger.warning(f"Start clap not found in first {search_start}s, using first peak")
-    
-    # Search for end clap
-    search_end = config.clap_search_window_end
-    total_duration = time[-1]
-    end_candidates = peaks[time[peaks] > (total_duration - search_end)]
-    
-    if len(end_candidates) > 0:
-        t_end = time[end_candidates[-1]]
-    else:
-        t_end = time[peaks[-1]]
-        logger.warning(f"End clap not found in last {search_end}s, using last peak")
-    
-    logger.info(f"Detected claps: start={t_start:.2f}s, end={t_end:.2f}s")
-    
-    return t_start, t_end
+
+    for key, win, fallback in (("start", win_s, peaks[:1]), ("end", win_e, peaks[-1:])):
+        idx = np.where(win)[0]
+        best = idx[np.argmax(energy[idx])] if len(idx) else None
+        if best is not None and energy[best] > threshold:
+            info[f"t_{key}"], info[f"{key}_in_window"] = float(time[best]), True
+            info[f"{key}_energy_ratio"] = float(energy[best] / threshold)
+        elif len(fallback):
+            info[f"t_{key}"] = float(time[fallback[0]])
+            logger.warning(f"{key.capitalize()} clap not found in its {config.clap_search_window_start if key == 'start' else config.clap_search_window_end:.0f} s "
+                           f"search window, using the {'first' if key == 'start' else 'last'} peak above threshold")
+
+    if info["t_start"] is None or info["t_end"] is None:
+        logger.warning("Clap detection failed (no energy frame above threshold)")
+        info["t_start"] = info["t_end"] = None
+        return info
+    logger.info(f"Detected claps: start={info['t_start']:.2f}s, end={info['t_end']:.2f}s "
+                f"(high-pass {info.get('highpass_hz', 0):.0f} Hz, threshold {threshold:.4f})")
+    return info
 
 
 def _detect_claps_from_video_frames(
@@ -213,18 +236,14 @@ def create_time_sync(
     Returns:
         TimeSync object
     """
-    # Solve for a and b using two point pairs
-    # Point 1: (t_clap_start_video, t_stomp_start_sensor)
-    # Point 2: (t_clap_end_video, t_stomp_end_sensor)
-    
-    if t_clap_end_video == t_clap_start_video:
-        logger.error("Video claps are at the same time, cannot create sync")
-        # Fallback: assume 1:1 mapping
-        return TimeSync(a=1.0, b=t_stomp_start_sensor - t_clap_start_video)
-    
-    a = (t_stomp_end_sensor - t_stomp_start_sensor) / (t_clap_end_video - t_clap_start_video)
-    b = t_stomp_start_sensor - a * t_clap_start_video
-    
-    logger.info(f"Created time sync: t_sensor = {a:.4f} * t_video + {b:.2f}")
-    
-    return TimeSync(a=a, b=b)
+    # Thesis Section 4.2: a single confirmed start anchor with alpha = 1 (offset only). The end clap is not
+    # reliable (footstep transients, video chapters that end before the walk), so the two-anchor slope is
+    # only logged as a clock-drift diagnostic.
+    b = t_stomp_start_sensor - t_clap_start_video
+    if t_clap_end_video != t_clap_start_video:
+        a_two = (t_stomp_end_sensor - t_stomp_start_sensor) / (t_clap_end_video - t_clap_start_video)
+        logger.info(f"Two-anchor slope (diagnostic only, not used): {a_two:.4f}")
+
+    logger.info(f"Created time sync: t_sensor = t_video + {b:.2f}  (video offset Δ = {-b:.2f} s)")
+
+    return TimeSync(a=1.0, b=b)

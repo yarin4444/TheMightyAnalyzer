@@ -32,7 +32,6 @@ from walkability_analyzer.visualization import (
 from walkability_analyzer.video_processing import (
     analyze_video,
     create_time_sync,
-    detect_claps,
 )
 
 logger = logging.getLogger(__name__)
@@ -120,6 +119,7 @@ def process_recording(
     polar_parse_result=None,
     polar_sync_meta: Optional[Dict] = None,
     sam2_detector=None,
+    report_style: str = "replay",
 ):
     """Process a single sensor recording.
 
@@ -225,12 +225,16 @@ def process_recording(
     # Process video if requested and available
     video_annotations = None
     video_env_windows = None   # per-window env dicts from pipeline CSV (preferred for OWI)
+    time_sync = None
+    clap_info = None
     if process_video and route_data.video_path:
         try:
             logger.info(f"Processing video: {route_data.video_path}")
             
             # Detect claps in video
-            t_clap_start, t_clap_end = detect_claps(route_data.video_path, VIDEO_CONFIG)
+            from walkability_analyzer.video_processing.sync import detect_claps_detailed
+            clap_info = detect_claps_detailed(route_data.video_path, VIDEO_CONFIG)
+            t_clap_start, t_clap_end = clap_info["t_start"], clap_info["t_end"]
             
             if t_clap_start is not None and t_clap_end is not None:
                 # Create time sync
@@ -292,6 +296,7 @@ def process_recording(
     plot_path = output_dir / f"{recording.recording_id}_plot.png"
     map_path = output_dir / f"{recording.recording_id}_map.html"
     report_path = output_dir / f"{recording.recording_id}_report.html"
+    classic_path = output_dir / f"{recording.recording_id}_report_classic.html"
 
     create_time_series_plot(
         walking_segment,
@@ -421,11 +426,41 @@ def process_recording(
         video_annotations,
         plot_path,
         map_path,
-        report_path,
+        report_path if report_style == "classic" else classic_path,
         walkability_score=recording_walkability.score,
         walkability_result=recording_walkability,
         aligned_polar_df=aligned_polar_df,
     )
+
+    if report_style != "classic":
+        from walkability_analyzer.visualization.walk_replay import write_walk_replay
+        try:
+            write_walk_replay(
+                report_path,
+                route_data=route_data,
+                recording=recording,
+                walking_segment=walking_segment,
+                step_times=step_times,
+                t_start=float(t_start),
+                t_end=float(t_end),
+                annotations=annotations,
+                video_annotations=video_annotations,
+                metrics=metrics,
+                walkability_result=recording_walkability,
+                aligned_polar_df=aligned_polar_df,
+                polar_parse_result=polar_parse_result,
+                polar_sync_meta=polar_sync_meta,
+                physio_result=physio_result,
+                time_sync=time_sync,
+                clap_info=clap_info,
+                scoring_config=cfg,
+                plot_path=plot_path,
+                map_path=map_path,
+                classic_path=classic_path,
+            )
+        except Exception as exc:
+            logger.error(f"Walk Replay report failed, writing the classic report instead: {exc}", exc_info=True)
+            classic_path.replace(report_path)
 
     logger.info(f"Recording {recording.recording_id} processed successfully")
 
@@ -440,6 +475,7 @@ def process_route(
     physio_dir: Optional[Path] = None,
     scoring_profile=None,
     sam2_detector=None,
+    report_style: str = "replay",
 ):
     """Process all recordings for a single route.
 
@@ -521,6 +557,7 @@ def process_route(
                 polar_parse_result=polar_parse_result,
                 polar_sync_meta=polar_sync_meta,
                 sam2_detector=sam2_detector,
+                report_style=report_style,
             )
 
             all_recording_metrics.append(metrics)
@@ -570,6 +607,7 @@ def run_analysis(
     physio_root: Optional[Path] = None,
     scoring_profile=None,
     use_sam2: bool = False,
+    report_style: str = "replay",
 ):
     """Run the complete walkability analysis pipeline.
 
@@ -650,6 +688,7 @@ def run_analysis(
                 physio_dir=physio_root,
                 scoring_profile=scoring_profile,
                 sam2_detector=sam2_detector,
+                report_style=report_style,
             )
             
             # Add to summary — include OWI-specific fields when available

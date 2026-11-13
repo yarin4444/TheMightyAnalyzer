@@ -1,0 +1,3 @@
+Vendored libraries, inlined into the Walk Replay report at generation time (no CDN at runtime).
+
+leaflet.js, leaflet.css   Leaflet 1.9.4   https://unpkg.com/leaflet@1.9.4/dist/   Licence: BSD-2-Clause (see LICENSE)

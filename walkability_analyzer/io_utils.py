@@ -129,9 +129,10 @@ def find_video_file(route_path: Path) -> Optional[Path]:
     Returns:
         Path to video file or None if not found
     """
-    video_extensions = [".mp4", ".avi", ".mov", ".MP4", ".AVI", ".MOV"]
-    
-    for file in route_path.iterdir():
+    video_extensions = [".mp4", ".avi", ".mov", ".lrv", ".MP4", ".AVI", ".MOV", ".LRV"]
+
+    # GoPro LRV files are low-resolution proxies; prefer a full-resolution video when both exist
+    for file in sorted(route_path.iterdir(), key=lambda f: (f.suffix.lower() == ".lrv", f.name)):
         if file.is_file() and file.suffix in video_extensions:
             logger.info(f"Found video file: {file}")
             return file

@@ -62,7 +62,8 @@ python -m walkability_analyzer --data-root ".\test_records\BG_20-10-25" --output
 After running, check the `output/` directory:
 
 - `Route1/` - Contains reports for Route1
-  - `<recording>_report.html` - Main report with OWI score breakdown (open in browser)
+  - `<recording>_report.html` - Interactive Walk Replay report (open in Chrome/Edge; see README "Walk Replay report")
+  - `<recording>_report_classic.html` - Previous static report with OWI score breakdown
   - `<recording>_map.html` - Interactive map with video annotation markers
   - `<recording>_plot.png` - Time series visualization
   - `<recording>_video_scores.csv` - Per-window video metrics (when video processed)

@@ -30,6 +30,8 @@ setup(
     author_email="",
     url="",
     packages=find_packages(),
+    package_data={"walkability_analyzer.visualization": ["walk_replay_assets/*.*", "walk_replay_assets/js/*.js",
+                                                         "walk_replay_assets/vendor/*"]},
     install_requires=requirements,
     python_requires=">=3.10",
     entry_points={

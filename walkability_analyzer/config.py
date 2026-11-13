@@ -73,8 +73,10 @@ class VideoConfig:
     
     # Clap detection parameters
     clap_energy_threshold_multiplier: float = 5.0  # N * std above mean
-    clap_search_window_start: float = 10.0  # seconds from start
-    clap_search_window_end: float = 10.0  # seconds from end
+    clap_search_window_start: float = 30.0  # seconds from start (P04: clap at 13.7 s)
+    clap_search_window_end: float = 30.0  # seconds from end
+    clap_highpass_hz: float = 2000.0  # claps are broadband; removes traffic/wind energy (0 = off)
+    clap_skip_initial_s: float = 1.0  # ignore the camera start beep
     
     # Video analysis parameters
     frame_sample_rate: float = 1.0  # analyze one frame per second (classical CV)

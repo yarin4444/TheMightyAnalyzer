@@ -39,6 +39,7 @@ from __future__ import annotations
 import logging
 from typing import Optional, Tuple
 
+import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -178,3 +179,31 @@ def align_polar_to_iphone(
     )
 
     return df, total_offset, resolved_mode
+
+
+def polar_speed_lag(aligned_df: pd.DataFrame, iphone_df: pd.DataFrame, max_lag_s: float = 15.0,
+                    step_s: float = 0.25) -> Optional[dict]:
+    """Diagnostic only: residual Polar shift that best matches its 'connected GPS' speed to the iPhone GPS speed.
+
+    The watch's speed is relayed from the paired phone, so the result bounds the start-time alignment
+    error (watch clock + 1 s resolution + relay latency); it is not applied to the data.
+    """
+    if "speed_kmh" not in aligned_df.columns or "speed" not in iphone_df.columns:
+        return None
+    ps = aligned_df.dropna(subset=["speed_kmh", "iphone_t"])
+    if len(ps) < 60 or ps["speed_kmh"].std() == 0:
+        return None
+    t = iphone_df.index.to_numpy(dtype=float)
+    grid = np.arange(max(t[0], ps["iphone_t"].min()), min(t[-1], ps["iphone_t"].max()), 1.0)
+    phone = np.interp(grid, t, iphone_df["speed"].to_numpy(dtype=float) * 3.6)
+    lags = np.round(np.arange(-max_lag_s, max_lag_s + 1e-9, step_s), 3)
+    r = []
+    for lag in lags:
+        pv = np.interp(grid, ps["iphone_t"].to_numpy() + lag, ps["speed_kmh"].to_numpy(), left=np.nan, right=np.nan)
+        ok = np.isfinite(pv) & np.isfinite(phone)
+        r.append(float(np.corrcoef(pv[ok], phone[ok])[0, 1]) if ok.sum() > 30 else np.nan)
+    r = np.asarray(r)
+    k = int(np.nanargmax(r))
+    return {"best_lag_s": float(lags[k]), "r_best": round(float(r[k]), 3),
+            "r_at_zero": round(float(r[np.argmin(np.abs(lags))]), 3),
+            "lags": lags.tolist(), "r": [None if not np.isfinite(x) else round(float(x), 4) for x in r]}
