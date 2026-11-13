@@ -143,12 +143,32 @@ output_root/
   Route1/
     <recording>_plot.png            # Time series visualization
     <recording>_map.html            # Interactive map with video annotations
-    <recording>_report.html         # Combined HTML report with OWI breakdown
+    <recording>_report.html         # Interactive "Walk Replay" report (default) — see below
+    <recording>_report_classic.html # Previous static report (also linked from the Summary tab)
     <recording>_video_scores.csv    # Per-window video metrics (when video processed)
+    GX01nnnn_proxy.mp4              # Browser-safe H.264 copy of an HEVC GoPro video (when needed)
   Route2/
     ...
   routes_summary.csv               # Summary of all routes (OWI + MSI/EEI/PCI)
 ```
+
+### Walk Replay report
+
+`<recording>_report.html` is one self-contained file (inline CSS/JS, vendored Leaflet, data embedded as JSON).
+Double-click it to open it in Chrome or Edge — no server and no internet needed, except for the map tiles
+(Esri street map or satellite imagery; offline, the map falls back to a plain local-plane drawing of the track).
+OpenStreetMap and CARTO tile servers are not used because they reject pages opened from disk.
+
+- Replay the walk: the GoPro video, the map marker, the plot cursors and the live gauges all follow one clock
+  (sensor time *t*; video time *t_v = t + Δ* from the stomp-clap event, thesis Section 4.2).
+- Tabs: Plots, Timeline, Event log, Score, Physiology, Config & data, Summary (printable, A4 via *Export → Print*).
+- Keys: `Space` play/pause · `←/→` ±1 s · `Shift+←/→` ±10 s · `[`/`]` previous/next event · `Home`/`End` ·
+  `1`–`7` tabs · `T` theme · `F` fullscreen video. Deep links: `report.html#tab=timeline&t=120`.
+- **Video location**: the report references the video by a relative path, so keep the folder layout
+  (`test_records/...` next to `output/...`) when you move files. HEVC GoPro files are converted once to
+  `<name>_proxy.mp4` in the report folder (ffmpeg if installed, otherwise PyAV). LRV files play directly.
+  If the video is not found, use **Load video…** in the GoPro panel.
+- Generate the previous static report instead with `--report-style classic` (CLI) or *Report: classic* (GUI).
 
 ## Walkability Score (OWI v1 Modular)
 

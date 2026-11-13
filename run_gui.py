@@ -38,6 +38,7 @@ _THIS_DIR = Path(__file__).resolve().parent
 if str(_THIS_DIR) not in sys.path:
     sys.path.insert(0, str(_THIS_DIR))
 
+from walkability_analyzer.config import VIDEO_CONFIG
 from walkability_analyzer.scoring.score_config import ScoringProfile
 
 # ---------------------------------------------------------------------------
@@ -133,6 +134,7 @@ class WalkabilityGUI(tk.Tk):
         self._verbose     = BooleanVar(value=False)
         self._process_video = BooleanVar(value=False)
         self._use_sam2    = BooleanVar(value=False)
+        self._report_style = StringVar(value="replay")
         self._save_config = StringVar(value="")
 
         # Windowing vars
@@ -140,6 +142,16 @@ class WalkabilityGUI(tk.Tk):
         self._window_overlap = DoubleVar(value=0.5)
         self._hotspot_thr    = DoubleVar(value=35.0)
         self._auto_renorm    = BooleanVar(value=True)
+
+        # Video synchronization (clap detection) vars
+        self._clap_hp        = DoubleVar(value=VIDEO_CONFIG.clap_highpass_hz)
+        self._clap_win_start = DoubleVar(value=VIDEO_CONFIG.clap_search_window_start)
+        self._clap_win_end   = DoubleVar(value=VIDEO_CONFIG.clap_search_window_end)
+        self._clap_skip      = DoubleVar(value=VIDEO_CONFIG.clap_skip_initial_s)
+        self._clap_k         = DoubleVar(value=VIDEO_CONFIG.clap_energy_threshold_multiplier)
+        self._ref_clap_start = StringVar(value="")
+        self._ref_clap_end   = StringVar(value="")
+        self._sync_thread: threading.Thread | None = None
 
         # Scoring vars per-module / per-metric built dynamically
         self._mod_enabled : dict[str, BooleanVar] = {}
@@ -216,6 +228,8 @@ class WalkabilityGUI(tk.Tk):
         ttk.Button(bar, text="Dry Run", command=self._on_dry_run).pack(side="left", padx=(0, 6))
         ttk.Button(bar, text="Save Config…", command=self._on_save_config).pack(side="left", padx=(0, 6))
         ttk.Button(bar, text="Load Config…", command=self._on_load_config).pack(side="left", padx=(0, 6))
+        self._btn_sync = ttk.Button(bar, text="Verify Sync…", command=self._on_verify_sync)
+        self._btn_sync.pack(side="left", padx=(0, 6))
 
         self._btn_report = ttk.Button(
             bar, text="Open Report", state="disabled", command=self._on_open_report,
@@ -340,6 +354,9 @@ class WalkabilityGUI(tk.Tk):
         opts.grid(row=row, column=0, columnspan=3, sticky="w", padx=PAD*2, pady=4)
         ttk.Checkbutton(opts, text="Open report after analysis", variable=self._open_report).pack(side="left", padx=8)
         ttk.Checkbutton(opts, text="Verbose logging",            variable=self._verbose).pack(side="left", padx=8)
+        tk.Label(opts, text="Report:", bg=BG, font=FONT_BODY).pack(side="left", padx=(16, 4))
+        ttk.Combobox(opts, textvariable=self._report_style, values=("replay", "classic"),
+                     state="readonly", width=8).pack(side="left")
         row += 1
 
         # Video processing options row
@@ -509,6 +526,30 @@ class WalkabilityGUI(tk.Tk):
             f, text="Auto-renormalize weights (recommended)",
             variable=self._auto_renorm,
         ).grid(row=row, column=0, columnspan=3, sticky="w", padx=PAD*2, pady=4)
+        row += 1
+
+        ttk.Separator(f, orient="horizontal").grid(
+            row=row, column=0, columnspan=3, sticky="ew", padx=PAD*2, pady=PAD,
+        )
+        row += 1
+
+        tk.Label(f, text="Video Synchronization (stomp-clap)", bg=BG, font=FONT_H1).grid(
+            row=row, column=0, columnspan=3, sticky="w", padx=PAD*2, pady=(4, PAD),
+        )
+        row += 1
+        _row("Clap audio high-pass (Hz):", self._clap_hp, row, "Removes traffic/wind energy; 0 = off. Default: 2000")
+        row += 1
+        _row("Start clap search window (s):", self._clap_win_start, row, "Strongest clap within this time from the video start. Default: 30")
+        row += 1
+        _row("End clap search window (s):", self._clap_win_end, row, "Strongest clap within this time before the video end. Default: 30")
+        row += 1
+        _row("Skip video start (s):", self._clap_skip, row, "Ignores the camera start beep. Default: 1")
+        row += 1
+        _row("Clap threshold (× σ):", self._clap_k, row, "Accept the clap above μ_E + k·σ_E. Default: 5")
+        row += 1
+        _row("Reference start clap (s, optional):", self._ref_clap_start, row, "For 'Verify sync' only: clap time read from the video, e.g. 13")
+        row += 1
+        _row("Reference end clap (s, optional):", self._ref_clap_end, row, "For 'Verify sync' only: e.g. 777 (12:57)")
         row += 1
 
     # ------------------------------------------------------------------
@@ -894,6 +935,7 @@ class WalkabilityGUI(tk.Tk):
                 return
 
             from walkability_analyzer.main import run_analysis
+            self._apply_clap_settings()
             scoring_config = profile.to_scoring_config()
             run_analysis(
                 data_root=data_root,
@@ -904,6 +946,7 @@ class WalkabilityGUI(tk.Tk):
                 physio_root=physio_root,
                 scoring_profile=profile,
                 use_sam2=self._use_sam2.get(),
+                report_style=self._report_style.get(),
             )
 
             reports = sorted(output_root.rglob("*_report.html"))
@@ -941,6 +984,16 @@ class WalkabilityGUI(tk.Tk):
                     elif kind == "__ERR__":
                         self._btn_run.configure(state="normal")
                         self._set_status(f"Error: {payload}", color=DANGER)
+                    elif kind == "__SYNC__":
+                        self._btn_sync.configure(state="normal")
+                        self._set_status(f"Sync check complete — {payload}", color=SUCCESS)
+                        png = Path(payload) / "sync_check.png"
+                        if png.exists():
+                            os.startfile(str(png))  # noqa: S606 (Windows viewer)
+                        os.startfile(str(payload))  # noqa: S606
+                    elif kind == "__SYNCERR__":
+                        self._btn_sync.configure(state="normal")
+                        self._set_status(f"Sync check failed: {payload}", color=DANGER)
                     elif kind == "__PLAIN__":
                         self._append_log(str(payload), "PLAIN")
                 else:
@@ -981,12 +1034,115 @@ class WalkabilityGUI(tk.Tk):
             _ReportPicker(self, self._report_paths)
 
     # =====================================================================
+    # Video synchronization settings + sync check
+    # =====================================================================
+
+    def _apply_clap_settings(self) -> None:
+        """Copy the Advanced-tab clap settings into the shared VideoConfig used by the pipeline."""
+        VIDEO_CONFIG.clap_highpass_hz = float(self._clap_hp.get())
+        VIDEO_CONFIG.clap_search_window_start = float(self._clap_win_start.get())
+        VIDEO_CONFIG.clap_search_window_end = float(self._clap_win_end.get())
+        VIDEO_CONFIG.clap_skip_initial_s = float(self._clap_skip.get())
+        VIDEO_CONFIG.clap_energy_threshold_multiplier = float(self._clap_k.get())
+
+    def _sync_check_folder(self) -> Path | None:
+        """The recording folder to check: Setup data root (+ route), or ask when it holds no sensor CSV."""
+        root = Path(self._data_root.get().strip()) if self._data_root.get().strip() else None
+        route = self._route.get().strip()
+        cand = (root / route) if (root and route) else root
+        if cand and cand.is_dir() and any(cand.glob("*.csv")):
+            return cand
+        chosen = filedialog.askdirectory(title="Recording folder (iPhone CSV + GoPro video + optional Polar CSV)",
+                                         initialdir=str(cand if cand and cand.is_dir() else _THIS_DIR))
+        return Path(chosen) if chosen else None
+
+    def _on_verify_sync(self) -> None:
+        if (self._sync_thread and self._sync_thread.is_alive()) or (self._analysis_thread and self._analysis_thread.is_alive()):
+            messagebox.showwarning("Busy", "An analysis or sync check is still in progress.")
+            return
+        folder = self._sync_check_folder()
+        if folder is None:
+            return
+        try:
+            refs = [float(v.get()) if v.get().strip() else None for v in (self._ref_clap_start, self._ref_clap_end)]
+            self._apply_clap_settings()
+        except (ValueError, tk.TclError) as exc:
+            messagebox.showerror("Invalid value", f"Check the Video Synchronization settings:\n{exc}")
+            return
+        out_dir = Path(self._output_root.get().strip() or _THIS_DIR / "output") / "sync_check" / folder.name
+        self._btn_sync.configure(state="disabled")
+        self._nb.select(self._tab_log)
+        self._clear_log()
+        self._set_status(f"Verifying synchronization of {folder.name}…", color=WARNING)
+        self._sync_thread = threading.Thread(target=self._sync_worker, args=(folder, out_dir, *refs), daemon=True)
+        self._sync_thread.start()
+
+    def _sync_worker(self, folder: Path, out_dir: Path, ref_start, ref_end) -> None:
+        log_queue = self._log_queue
+        handler = _QueueHandler(log_queue)
+        handler.setFormatter(logging.Formatter("%(asctime)s  %(levelname)-8s  %(name)s  %(message)s", "%H:%M:%S"))
+        root_logger = logging.getLogger()
+        root_logger.addHandler(handler)
+        root_logger.setLevel(logging.INFO)
+        try:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("verify_sync", _THIS_DIR / "scripts" / "verify_sync.py")
+            vs = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(vs)
+            log_queue.put(("__PLAIN__", f"Sync check: {folder}"))
+            res, out = vs.run(folder, out_dir, ref_start, ref_end)
+            for line in _sync_summary(res):
+                log_queue.put(("__PLAIN__", line))
+            log_queue.put(("__PLAIN__", f"Results: {out}"))
+            log_queue.put(("__SYNC__", out))
+        except Exception as exc:
+            import traceback
+            log_queue.put(("__PLAIN__", traceback.format_exc()))
+            log_queue.put(("__SYNCERR__", str(exc)))
+        finally:
+            root_logger.removeHandler(handler)
+
+    # =====================================================================
     # Status bar
     # =====================================================================
 
     def _set_status(self, msg: str, color: str = "#374151") -> None:
         self._status_var.set(msg)
         self._status_lbl.configure(fg=color)
+
+
+def _sync_summary(res: dict) -> list[str]:
+    """Readable lines from scripts/verify_sync.py results."""
+    ip, v, p = res.get("iphone", {}), res.get("video", {}), res.get("polar")
+    c = v.get("claps") or {}
+    f = lambda x, n=2: "—" if x is None else f"{x:.{n}f}"  # noqa: E731
+    out = ["", "─" * 60, "SYNCHRONIZATION CHECK", "─" * 60,
+           f"  iPhone   : {ip.get('fs_hz')} Hz, {f(ip.get('duration_s'), 1)} s, gaps>50 ms: {ip.get('gaps_over_50ms')}",
+           f"  Stomps   : start {f(ip.get('stomp_start_s'))} s ({'in' if ip.get('stomp_start_in_window') else 'NOT in'} window), "
+           f"end {f(ip.get('stomp_end_s'))} s ({'in' if ip.get('stomp_end_in_window') else 'NOT in'} window)"]
+    if v.get("file"):
+        out += [f"  Video    : {v['file']}",
+                f"  Claps    : start {f(c.get('t_start'))} s ({f(c.get('start_energy_ratio'), 1)}× thr), "
+                f"end {f(c.get('t_end'))} s ({f(c.get('end_energy_ratio'), 1)}× thr)  [{c.get('method')}]",
+                f"  Offset Δ : {f(v.get('delta_start_anchor_s'), 3)} s   (video time = sensor time + Δ)"]
+        for k in ("start", "end"):
+            if f"reference_clap_{k}_s" in v:
+                out.append(f"  Reference {k} clap {v[f'reference_clap_{k}_s']} s → detected − reference = {v[f'clap_{k}_minus_reference_s']:+.2f} s")
+        if v.get("phone_covers_end_clap") is False:
+            out.append("  End clap after the phone stopped recording → clock drift cannot be estimated")
+        elif "end_pair_drift_s" in v:
+            out.append(f"  Drift between start and end anchors: {v['end_pair_drift_s']:+.3f} s")
+    else:
+        out.append("  Video    : none found")
+    if p:
+        sc = p.get("speed_check") or {}
+        out += [f"  Polar    : {p['file']}, {p['sync_mode']} alignment, offset {f(p['offset_s'], 2)} s, HRV: {p['hrv_mode']}",
+                f"  Polar speed vs iPhone speed: best extra shift {f(sc.get('best_lag_s'))} s "
+                f"(r {sc.get('r_at_zero')} → {sc.get('r_best')})" if sc else "  Polar speed check: not available"]
+    else:
+        out.append("  Polar    : none found")
+    out.append(f"  Frame sheets for visual checks: {', '.join(s['frames'] for s in res.get('stop_checks', [])) or '—'}")
+    return out
 
 
 # ---------------------------------------------------------------------------

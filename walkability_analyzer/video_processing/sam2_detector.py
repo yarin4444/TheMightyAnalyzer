@@ -22,7 +22,9 @@ Checkpoint download (run once):
     # and place in: walkability_analyzer/video_processing/checkpoints/sam2.1_hiera_tiny.pt
 """
 
+import hashlib
 import logging
+from collections import OrderedDict
 from pathlib import Path
 from typing import Optional
 
@@ -30,6 +32,8 @@ import cv2
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+_CACHE_SIZE = 4096  # per-frame metric dicts (a few hundred bytes each)
 
 # ── Soft import: SAM 2 is optional ────────────────────────────────────────
 try:
@@ -139,13 +143,25 @@ class SAM2FrameAnalyzer:
         )
         self._device = device
         self._max_input_width = max_input_width
+        self._cache: "OrderedDict[bytes, dict]" = OrderedDict()
         logger.info(
             f"SAM2FrameAnalyzer ready on {device} "
             f"(points_per_side={points_per_side}, max_input_width={max_input_width})"
         )
 
     def __call__(self, frame_bgr: np.ndarray) -> dict:
-        """Run SAM2 once and return all walkability metrics for the frame."""
+        """Run SAM2 once and return all walkability metrics for the frame (cached per frame content)."""
+        key = hashlib.blake2b(np.ascontiguousarray(frame_bgr).tobytes(), digest_size=16).digest()
+        if key in self._cache:
+            self._cache.move_to_end(key)
+            return dict(self._cache[key])
+        result = self._analyze(frame_bgr)
+        self._cache[key] = result
+        if len(self._cache) > _CACHE_SIZE:
+            self._cache.popitem(last=False)
+        return dict(result)
+
+    def _analyze(self, frame_bgr: np.ndarray) -> dict:
         # Resize to max_input_width if needed (speeds up SAM2 encoder on CPU)
         orig_h, orig_w = frame_bgr.shape[:2]
         if orig_w > self._max_input_width:

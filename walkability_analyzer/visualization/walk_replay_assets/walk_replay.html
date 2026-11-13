@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }}</title>
+<style>{{ leaflet_css }}</style>
+<style>{{ css }}</style>
+</head>
+<body>
+<div id="top">
+  <div class="brand">🚶 Walk Replay<span class="sub" id="metaLine"></span></div>
+  <div class="ctl">
+    <button id="bBack10" title="−10 s (Shift+←)">⏮</button>
+    <button id="bBack1" title="−1 s (←)">◀</button>
+    <button id="bPlay" class="primary" title="Play / pause (Space)">▶</button>
+    <button id="bFwd1" title="+1 s (→)">▶</button>
+    <button id="bFwd10" title="+10 s (Shift+→)">⏭</button>
+    <select id="selRate" title="Playback speed"><option>0.25</option><option>0.5</option><option selected>1</option><option>2</option><option>4</option><option>8</option><option>16</option></select>
+    <button id="bPrevEv" title="Previous event ([)">◀ event</button>
+    <button id="bNextEv" title="Next event (])">event ▶</button>
+  </div>
+  <div class="ctl">
+    <span class="clock" id="clock"></span>
+    <div class="menu"><button id="bExport" title="Export">Export ▾</button>
+      <div class="menuItems" id="exportMenu">
+        <button data-exp="csv">Windows table (CSV)</button>
+        <button data-exp="events">Event log (CSV)</button>
+        <button data-exp="png">Current plots (PNG)</button>
+        <button data-exp="print">Print summary / PDF</button>
+        <button data-exp="link">Copy link to this moment</button>
+      </div></div>
+    <button id="bTheme" title="Dark / light (T)">◐</button>
+  </div>
+</div>
+
+<div id="grid">
+  <div class="panel" id="pvid">
+    <div class="ph"><b>GoPro · chest view</b><span class="hint" id="vidSync"></span>
+      <div class="tools"><label class="filebtn" title="Pick the video file if it is not found next to the report">Load video…<input type="file" id="fileVideo" accept="video/*,.lrv,.LRV"></label></div></div>
+    <div class="vidwrap" id="vidwrap">
+      <video id="video" preload="metadata" playsinline muted></video>
+      <canvas id="cvThumb"></canvas>
+      <div class="novideo" id="noVideo"></div>
+      <div class="hud tl" id="hudTL"></div><div class="hud tr" id="hudTR"></div><div class="hud bl" id="hudBL"></div></div>
+    <canvas id="cvSpark" title="OWI score over the walk — click to seek"></canvas>
+  </div>
+
+  <div class="panel" id="pmap">
+    <div class="ph"><b>Route map</b><span class="hint" id="mapHint">click track to seek</span>
+      <div class="tools">colour <select id="selMapMode"><option value="owi">OWI score</option><option value="speed">GPS speed</option><option value="hr">heart rate</option></select>
+        <label><input type="checkbox" id="chkRaw" checked> GPS fixes</label><label><input type="checkbox" id="chkEv" checked> events</label></div></div>
+    <div id="mapBox"><div id="leaflet"></div><canvas id="cvMap"></canvas></div>
+    <div class="maplegend"><span id="legTitle">OWI score</span><div class="bar"></div><span id="legRange">0 · 50 · 100</span></div>
+  </div>
+
+  <div class="panel" id="pstat">
+    <div class="ph"><b>Live status</b><span class="hint" id="winLabel"></span></div>
+    <div id="status">
+      <div class="gaugeRow"><canvas id="cvGauge"></canvas><div class="route" id="routeBox"></div></div>
+      <h4>Modules · current window <span>tick = route mean</span></h4><div id="mods"></div>
+      <h4>Gait state</h4>
+      <div class="sm" id="gaitChips"><span data-s="walk">WALKING</span><span data-s="change">CHANGE</span><span data-s="slowdown">SLOWDOWN</span><span data-s="stop">STOP</span><span data-s="gps">GPS ARTEFACT</span></div>
+      <div class="reason" id="gaitReason"></div>
+      <h4>Data sources</h4><div class="lamps" id="lamps"></div>
+      <h4>Live values</h4><div class="kv" id="kv"></div>
+      <h4>Window metrics <span>score · weight</span></h4><div id="mbars"></div>
+      <h4>Active events</h4><div id="activeEv"></div>
+    </div>
+  </div>
+
+  <div class="panel" id="pbot">
+    <div class="tabs" id="tabs">
+      <button data-tab="plots" class="on">Plots</button><button data-tab="timeline">Timeline</button><button data-tab="log">Event log</button>
+      <button data-tab="score">Score</button><button data-tab="phys">Physiology</button><button data-tab="config">Config &amp; data</button><button data-tab="summary">Summary</button>
+      <span class="hint">wheel = zoom time · drag = pan · click = seek · dbl-click = full walk</span>
+    </div>
+    <div class="tab on" id="tab-plots"><div class="plots">
+      <canvas data-plot="speed"></canvas><canvas data-plot="cadence"></canvas><canvas data-plot="acc"></canvas>
+      <canvas data-plot="hr"></canvas><canvas data-plot="owi"></canvas><canvas data-plot="mods"></canvas></div></div>
+    <div class="tab" id="tab-timeline"><canvas id="cvTl"></canvas><div class="tlinfo" id="tlInfo">click an item for details</div></div>
+    <div class="tab" id="tab-log"><div class="logbar" id="logFilters"></div><div class="logwrap"><table class="log" id="logTable"></table></div></div>
+    <div class="tab" id="tab-score"><div class="cards" id="scoreCards"></div></div>
+    <div class="tab" id="tab-phys"><div class="cards" id="physCards"></div></div>
+    <div class="tab" id="tab-config"><div class="cards" id="configCards"></div></div>
+    <div class="tab" id="tab-summary"><div class="summary" id="summary"></div></div>
+  </div>
+</div>
+<div id="tip"></div>
+
+<script type="application/json" id="walk-data">{{ data_json }}</script>
+<script type="application/json" id="walk-extras">{{ extras_json }}</script>
+<script>{{ leaflet_js }}</script>
+<script>
+'use strict';
+{{ app_js }}
+</script>
+</body>
+</html>

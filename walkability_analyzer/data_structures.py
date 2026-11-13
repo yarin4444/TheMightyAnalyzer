@@ -161,6 +161,7 @@ class WindowMetrics:
     pci_score: Optional[float]        # Physiological Comfort Index [0,1]
     owi_score: Optional[float]        # Window OWI score [0,100]
     metadata: Dict = field(default_factory=dict)
+    sub_scores: Dict[str, float] = field(default_factory=dict)  # per-metric scores [0,1] as computed by the modules
 
 
 @dataclass

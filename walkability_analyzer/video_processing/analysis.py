@@ -214,7 +214,11 @@ def detect_crowd_segments(
         cap = cv2.VideoCapture(str(video_path))
         fps = cap.get(cv2.CAP_PROP_FPS)
         
-        frame_interval = int(fps / config.frame_sample_rate)
+        if sam2_detector is not None:
+            # same frames as the SAM2 pipeline pass, so the analyzer's cache serves both
+            frame_interval = max(1, int(round(fps / getattr(config, "sam2_frame_sample_rate", config.frame_sample_rate))))
+        else:
+            frame_interval = int(fps / config.frame_sample_rate)
         
         crowd_data = []
         frame_idx = 0

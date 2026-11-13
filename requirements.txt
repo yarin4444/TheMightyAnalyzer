@@ -6,6 +6,9 @@ scipy>=1.10.0
 # Visualization
 matplotlib>=3.7.0
 folium>=0.14.0
+jinja2>=3.1          # Walk Replay report template (also a folium dependency)
+av>=12.0             # PyAV: clap audio decoding, video probing, H.264 proxy (thesis Section 4.4)
+pillow>=10.0         # thumbnail sprite for the Walk Replay timeline
 
 # Geospatial (optional but recommended)
 geopandas>=0.13.0

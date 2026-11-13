@@ -129,7 +129,22 @@ Click the **Advanced** tab to change windowing parameters:
 | **Hotspot threshold (pts)** | `35.0` | Windows scoring below this value are flagged as walkability hotspots |
 | **Auto-renormalize weights** | ☑ checked | Automatically rescales weights when metrics are disabled. Recommended. |
 
+The **Video Synchronization (stomp-clap)** section sets the clap detection used when *Process video* is ticked:
+
+| Field | Default | Meaning |
+|---|---|---|
+| **Clap audio high-pass (Hz)** | `2000` | Removes low-frequency traffic/wind energy so the clap is the strongest transient (0 = off) |
+| **Start / End clap search window (s)** | `30` / `30` | The strongest clap within this time from the video start / before the video end is used |
+| **Skip video start (s)** | `1` | Ignores the camera start beep |
+| **Clap threshold (× σ)** | `5` | The clap must exceed μ_E + k·σ_E of the whole recording |
+| **Reference start / end clap (s)** | empty | Optional clap times read from the video, used only by **Verify Sync…** to report the difference |
+
 For most test runs, the defaults are appropriate.
+
+**Verify Sync…** (bottom bar) checks one recording folder (iPhone CSV + GoPro video + optional Polar CSV): stomps, claps and the
+video offset Δ, whether the phone also recorded the end clap (drift), the Polar start-time alignment and its speed cross-check.
+It uses the Setup data root + route, or asks for a folder, writes `<output>/sync_check/<folder>/` (JSON, figure, frame sheets of
+the claps and the longest stops for visual checking), prints a summary in the Log tab, and opens the figure and folder.
 
 ---
 
@@ -166,7 +181,9 @@ When finished:
 
 Click **Open Report**. If multiple routes were processed, a picker dialog lists all generated reports — select the one you want.
 
-The HTML report opens in your default browser and contains:
+The HTML report opens in your default browser. With **Report: replay** (Setup tab, default) it is the interactive
+*Walk Replay* report: GoPro video, map, plots and gauges replay the walk on one clock (see the README section
+"Walk Replay report"). With **Report: classic** it is the previous static report, which contains:
 - **Overall OWI score** for the route.
 - **Per-module scores** (MSI / EEI / PCI).
 - **Interactive map** with colour-coded walkability hotspots.

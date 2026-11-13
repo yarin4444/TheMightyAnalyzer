@@ -39,6 +39,16 @@ logger = logging.getLogger(__name__)
 # EEI  : obstacle_load, traffic_exposure, crowding, crossing_complexity, shade
 # PCI  : heart_rate, rmssd, heart_rate_slope
 
+# Default metric weights used when no ScoringProfile is given (MSI defaults live in ScoringConfig)
+_EEI_DEFAULTS: Dict[str, float] = {
+    "obstacle_load":       0.25,
+    "traffic_exposure":    0.25,
+    "crowding":            0.20,
+    "crossing_complexity": 0.20,
+    "shade":               0.10,
+}
+_PCI_DEFAULTS: Dict[str, float] = {"heart_rate": 0.40, "rmssd": 0.50, "heart_rate_slope": 0.10}
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -284,14 +294,6 @@ def _compute_window_eei(
     sub: Dict[str, Any] = {}
     weights_available: Dict[str, float] = {}
 
-    _EEI_DEFAULTS: Dict[str, float] = {
-        "obstacle_load":       0.25,
-        "traffic_exposure":    0.25,
-        "crowding":            0.20,
-        "crossing_complexity": 0.20,
-        "shade":               0.10,
-    }
-
     def _mw_eei(key: str) -> Optional[float]:
         if metric_weights is not None:
             return metric_weights.get(key)
@@ -377,8 +379,6 @@ def _compute_window_pci(
 
     sub: Dict[str, Any] = {}
     weights_available: Dict[str, float] = {}
-
-    _PCI_DEFAULTS: Dict[str, float] = {"heart_rate": 0.40, "rmssd": 0.50, "heart_rate_slope": 0.10}
 
     def _mw_pci(key: str) -> Optional[float]:
         if metric_weights is not None:
@@ -787,16 +787,16 @@ def compute_owi_modular(
         # EEI
         if module_avail.environment:
             env_w    = _get_env_window(env_window_data, t_start_w, t_end_w)
-            eei_score, _ = _compute_window_eei(win_df, env_w, cfg, metric_weights=_eei_wts)
+            eei_score, eei_sub = _compute_window_eei(win_df, env_w, cfg, metric_weights=_eei_wts)
         else:
-            eei_score = None
+            eei_score, eei_sub = None, {}
 
         # PCI
         if module_avail.physiology:
             physio_w = _get_physio_window(physiology_data["windows"], t_start_w, t_end_w)
-            pci_score, _ = _compute_window_pci(win_df, physio_w, physio_baseline, cfg, metric_weights=_pci_wts)
+            pci_score, pci_sub = _compute_window_pci(win_df, physio_w, physio_baseline, cfg, metric_weights=_pci_wts)
         else:
-            pci_score = None
+            pci_score, pci_sub = None, {}
 
         # OWI for this window
         owi_score = _aggregate_window_owi(
@@ -823,6 +823,8 @@ def compute_owi_modular(
             eei_score=eei_score,
             pci_score=pci_score,
             owi_score=owi_score,
+            sub_scores={k: float(v) for sub in (msi_sub, eei_sub, pci_sub)
+                        for k, v in sub.items() if not k.startswith("_") and v is not None},
         ))
 
     # ---- Route-level aggregation ---------------------------------------

@@ -100,6 +100,10 @@ Examples:
 
     # ---- Misc flags ----------------------------------------------------
     parser.add_argument(
+        '--report-style', choices=['replay', 'classic'], default='replay',
+        help='replay = interactive Walk Replay report (default), classic = previous static HTML report',
+    )
+    parser.add_argument(
         '--route', type=str,
         help='Process only a specific route (by route ID/folder name)',
     )
@@ -158,6 +162,7 @@ Examples:
             scoring_config=scoring_cfg,
             physio_root=args.physio_root,
             use_sam2=args.use_sam2,
+            report_style=args.report_style,
         )
         logger.info("Analysis complete!")
     except Exception as e:
